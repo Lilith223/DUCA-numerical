@@ -177,7 +177,7 @@ class Falsone17DualDecomp:
         cons_vio += np.sum(np.max(tmp, axis=1))
         # print(f'cons_vio {cons_vio}')
             
-        obj_err = np.abs(fun_val-opt_val)
+        obj_err = fun_val-opt_val
         # print(f'{fun_val}, {opt_val}')
         # print(f'obj_err {obj_err}')
         return obj_err, cons_vio
