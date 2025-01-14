@@ -26,50 +26,65 @@ class IPLUX:
         verbose=0, 
         log_dir='log'):
         '''
+        these are set here:
+        
+        problem parameters:
+        N: number of nodes
+        d: dimension of xi's
+        p: number of inequalities
+        m: number of equalities, i.e., shape of A_i's is (m, d)
+        x_star: N dimensional vector
+        opt_val: float
+        
+        problem data:
+        Q shape: (N, d)
+        P shape: (N, d, d)
+        A shape: (N, m, d)
+        a shape: (N, d)
+        c shape: (N, )
+        aa shape: (N, d)
+        cc shape: (N, )
+        
+        algorithm parameters:
+        alpha
+        rho
+        W, H: (N, N) weight matrices
+        
+        
         these are set in 'reset()':
         x_cur, x_avg: N dimensional vector
         t_cur: N dimensional vector
         u_cur: N dimensional vector
         z_cur: N dimensional vector
         q_cur: N dimensional vector
-
-        these are set here:
-        c: N dimensional vector
-        d: N dimensional vector
-        b: 1 dimensional vector
-        x_star: N dimensional vector
-        opt_val: float
         
         no_ineq: if True, then there is no inequality
         verbose: the bigger this is, more info displays
+        log_dir
         init_time
         '''
+
+        self.N = prob.N
+        self.d = prob.d
+        self.p = prob.p
+        self.m = prob.m
+        self.x_star = prob.x_star
+        self.opt_val = prob.opt_val
         
+        self.Q = prob.Q 
+        self.P = prob.P 
+        self.A = prob.A 
+        self.a = prob.a 
+        self.c = prob.c 
+        self.aa = prob.aa 
+        self.cc = prob.cc 
+        
+        self.alpha = alpha
+        self.rho = rho
         self.W = (np.identity(prob.N) + network) * 0.5
         self.H = (np.identity(prob.N) - network) * 0.5
         # self.W = network
         # self.H = np.identity(prob.N) - network
-
-        self.N = prob.N
-        self.c = prob.c
-        self.d = prob.d
-        self.b = prob.b
-        self.x_star = prob.x_star
-        self.opt_val = prob.opt_val
-        
-        self.alpha = alpha
-        self.rho = rho
-        
-        # prepare the alg to start
-        self.iter_num = 0
-        
-        # logs
-        self.x_log = []
-        self.obj_err_log = []
-        self.cons_vio_log = []
-        self.x_avg_log = []
-        self.obj_err_avg_log = []
-        self.cons_vio_avg_log = []
         
         self.no_ineq = no_ineq
         self.verbose = verbose
@@ -81,46 +96,52 @@ class IPLUX:
 
     def reset(self):
         '''
-        x_cur, x_nxt, x_avg: N dimensional vector
-        t_cur, t_nxt: N dimensional vector
-        u_cur, u_nxt: N dimensional vector
-        z_cur, z_nxt: N dimensional vector
-        q_cur, q_nxt: N dimensional vector
-        
         iter_num = 0
+        
+        decision vars:
+        x_cur, x_nxt, x_avg: (N, d)
+        t_cur, t_nxt: (N, p)
+        u_cur, u_nxt: (N, m+p)
+        z_cur, z_nxt: (N, m+p)
+        q_cur, q_nxt: (N, p)
+        
+        log lists:
+        obj_err_log = []
+        obj_err_avg_log = []
+        cons_vio_log = []
+        cons_vio_avg_log = []
+        x_log = []
+        x_avg_log = []
         '''
         
         print('reset')
-        self.x_cur = np.zeros(self.N) + 1
-        # self.x_cur = self.x_star
-        self.x_nxt = np.zeros(self.N)
+        
+        self.iter_num = 0
+        
+        # initial conditions
+        self.x_cur = np.zeros((self.N, self.d))
+        self.t_cur = np.zeros((self.N, self.p))
+        self.u_cur = np.zeros((self.N, (self.m+self.p)))
+        self.z_cur = np.zeros((self.N, (self.m+self.p)))
+        self.q_cur = np.zeros((self.N, self.p))
+        
         self.x_avg = self.x_cur.copy() # for running average
         
-        self.t_cur = np.zeros(self.N)
-        # for i in range(self.N):
-        #     self.t_cur[i] = self.gi(i, self.x_cur[i])
-        self.t_nxt = np.zeros(self.N)
+        self.x_nxt = np.zeros((self.N, self.d))
+        self.t_nxt = np.zeros((self.N, self.p))
+        self.u_nxt = np.zeros((self.N, (self.m+self.p)))
+        self.z_nxt = np.zeros((self.N, (self.m+self.p)))
+        self.q_nxt = np.zeros((self.N, self.p))
         
-        self.u_cur = np.zeros(self.N)
-        self.u_nxt = np.zeros(self.N)
-        
-        self.z_cur = np.zeros(self.N)
-        self.z_nxt = np.zeros(self.N)
-        
-        self.q_cur = np.zeros(self.N)
         for i in range(self.N):
             Gi_yi0 = self.gi(i, self.x_cur[i]) - self.t_cur[i]
-            self.q_cur[i] = max(0, -Gi_yi0)
-        self.q_nxt = np.zeros(self.N)
-
-        self.iter_num = 0
+            self.q_cur[i] = np.max([np.zeros(self.p), -Gi_yi0], axis=0)
         
         # reset logs
         self.obj_err_log = []
         self.obj_err_avg_log = []
         self.cons_vio_log = []
         self.cons_vio_avg_log = []
-
         self.x_log = []
         self.x_avg_log = []
 
@@ -128,23 +149,23 @@ class IPLUX:
     
     
     def make_log(self):
-        ''' log infomation, save every 100 iterations '''
+        ''' save log every 100 iterations '''
         
         # last iterate
         obj_err, cons_vio = self.compute_metrics()
         self.obj_err_log.append(obj_err)
         self.cons_vio_log.append(cons_vio)
-        self.x_log.append(self.x_cur)
+        self.x_log.append(self.x_cur.flatten())
         
         # running average
         obj_err_avg, cons_vio_avg = self.compute_metrics(avg=True)
         self.obj_err_avg_log.append(obj_err_avg)
         self.cons_vio_avg_log.append(cons_vio_avg)
-        self.x_avg_log.append(self.x_avg)
+        self.x_avg_log.append(self.x_avg.flatten())
         
         # logging.info(f'iter {self.iter_num}, obj err: {obj_err:.2e}, cons vio: {cons_vio:.2e}')
         
-        if self.iter_num>0 and self.iter_num%100==0:
+        if self.iter_num%100==0:
             # last iterate
             np.savetxt(f'{self.log_dir}/obj_err_{self.name}.txt', self.obj_err_log, delimiter=',')
             np.savetxt(f'{self.log_dir}/cons_vio_{self.name}.txt', self.cons_vio_log, delimiter=',')
@@ -157,34 +178,70 @@ class IPLUX:
 
     def _set_argmin_prob(self, no_ineq=False):
         '''
-        var_xi: 1 dimensional vector
+        var_xi: (d, )
 
-        param_ci: 1 dimesional vector
-        param_xik: 1 dimensional vector
-        param_qGyd: 1 dimensional vector, (q_i^k + G_i(y_i^k)) * d_i
+        self.param_PxQ = cp.Parameter(self.d) # P_i^T x_i^k + Q_i
+        self.param_xik = cp.Parameter(self.d) # x_i^k
+        self.param_ATA = cp.Parameter((self.d, self.d)) # A_i^T A_i
+        # A_i^T (\sum_j w_{ij}(u_x^k)_j - 1/\rho(z_x^k)_i)
+        self.param_Awuz = cp.Parameter(self.d) 
+        self.param_qGy = cp.Parameter(self.p, nonneg=True) # (q_i^k + G_i(y_i^k))
+        self.param_aai = cp.Parameter(self.d)
+        self.param_ai = cp.Parameter(self.d)
+        self.param_ci = cp.Parameter(1)
         '''
         
-        self.var_xi = cp.Variable(1)
+        self.var_xi = cp.Variable(self.d)
 
-        self.param_ci = cp.Parameter(1)
-        self.param_xik = cp.Parameter(1)
-        self.param_qGyd = cp.Parameter(1, nonneg=True) # (q_i^k + G_i(y_i^k)) * d_i
-        # print(f'self.param_ci {self.param_ci.shape}')
+        self.param_PxQ = cp.Parameter(self.d) # P_i^T x_i^k + Q_i
+        self.param_xik = cp.Parameter(self.d) # x_i^k
+        self.param_A = cp.Parameter((self.m, self.d))
+        # self.param_ATA = cp.Parameter((self.d, self.d), PSD=True) # A_i^T A_i
         
-        obj = 0.
-        obj += self.param_ci[0] * self.var_xi[0]
+        # A_i^T (\sum_j w_{ij}(u_x^k)_j - 1/\rho(z_x^k)_i)
+        self.param_Awuz = cp.Parameter(self.d) 
+        # q_i^k + G_i(y_i^k)
+        self.param_qGy = cp.Parameter(self.p, nonneg=True) 
+        # (q_i^k + G_i(y_i^k)) * a_i'
+        self.param_qGyaa = cp.Parameter(self.d) 
+        self.param_aai = cp.Parameter(self.d)
+        self.param_ai = cp.Parameter(self.d)
+        self.param_ci = cp.Parameter(1)
+        
+        # obj = <P_i^T x_i^k +　Q_i, x_i> + ||x_i||_1 
+        #       + \alpha/2 * ||x_i-x_i^k||^2
+        #       + 1/(2\rho) * ||A_i x_i||^2 
+        #       + <\sum_j w_{ij}(u_x^k)_j - 1/\rho(z_x^k)_i, A_ix_i>
+        #       + <q_i^k + g_i(x_i^k) - t_i^k, g_i(x_i)>
+        
+        # quad_form(x, para) is not DPP
+        # obj += (0.5 / self.rho) * \
+        #         cp.quad_form(self.var_xi, self.param_ATA)
+        # sum_squares(para) is OK
+        
+        # obj += self.param_qGy[0] * \
+        #         cp.quad_form(self.var_xi-self.param_aai, np.identity(self.d))
+        # above is not DPP, since DPP forbits para * para
+        
+        
+        obj = 0.0
+        obj += self.param_PxQ.T @ self.var_xi
+        obj += cp.norm(self.var_xi, 1)
         obj += self.alpha * 0.5 * \
-                cp.quad_form(self.var_xi - self.param_xik, np.identity(1))
-        if not no_ineq:
-            obj +=  self.param_qGyd[0] * (-cp.log(self.var_xi[0] + 1))
+                cp.quad_form(self.var_xi-self.param_xik, np.identity(self.d))
+        obj += (0.5 / self.rho) * cp.sum_squares(self.param_A @ self.var_xi)
+        obj += self.param_Awuz.T @ self.var_xi
+        
+        obj += self.param_qGy[0] * cp.quad_form(self.var_xi, np.identity(self.d))
+        obj += -2 * self.param_qGyaa @ self.var_xi
 
         cons = [
-            self.var_xi >= 0.,
-            self.var_xi <= 1.
+            cp.quad_form(self.var_xi-self.param_ai, np.identity(self.d)) \
+                <= self.param_ci[0]
         ]
-
+        
         self.prob = cp.Problem(cp.Minimize(obj), cons)
-        print(f'self.prob {self.prob}')
+        logging.info(f'self.prob {self.prob}')
         assert self.prob.is_dcp(dpp=True)
 
     def _solve_argmin_prob(self, ci, xik, qGyd):
@@ -205,22 +262,24 @@ class IPLUX:
         return self.var_xi.value
     
     def fi(self, i, xi): 
-        ''' i: int, xi: float -> float'''
-        return self.c[i] * xi
+        ''' i: int, xi: (d, ) -> float'''
+        return xi.T@self.P[i]@xi + self.Q[i].T@xi + np.linalg.norm(xi,1)
     
     def gi(self, i, xi):
-        ''' i: int, xi: float -> float'''
-        return -self.d[i] * log(xi + 1) + self.b[0]/self.N
+        ''' i: int, xi: (d, ) -> (p, )'''
+        res = np.zeros(self.p)
+        res[0] = (xi-self.aa[i]).T @ (xi-self.aa[i]) - self.cc[i]
+        return res
     
-    def local_set_violation(self, xi):
-        ''' xi: float -> float'''
-        return max(-xi, 0) + max(xi-1, 0)
+    def local_set_violation(self, i, xi):
+        ''' xi: (d, ) -> float'''
+        return max(0, (xi-self.a[i]).T@(xi-self.a[i]) - self.c[i])
 
     def compute_metrics(self, avg=False):
         ''' -> obj_err: float, cons_vio: float'''
         
         fun_val = 0.
-        cons_val = np.zeros(1)  # constraint value
+        cons_val = np.zeros(self.p)  # constraint value
         # constraint violation, including local set violation
         cons_vio = 0.
         
@@ -230,12 +289,11 @@ class IPLUX:
         
         for i in range(self.N):            
             fun_val += self.fi(i, x[i])            
-            cons_val += self.gi(i, x[i]) # d dimensional vector            
-            cons_vio += self.local_set_violation(x[i]) 
+            cons_val += self.gi(i, x[i]) # p dimensional vector            
+            cons_vio += self.local_set_violation(i, x[i]) 
                         
-        tmp = np.c_[cons_val, np.zeros(1)]
-        cons_vio += np.sum(np.max(tmp, axis=1))
-        obj_err = fun_val - self.opt_val
+        cons_vio += np.sum(np.max([cons_val, np.zeros(self.p)], axis=0))
+        obj_err = abs(fun_val - self.opt_val)
         
         return obj_err, cons_vio
 

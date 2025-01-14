@@ -27,23 +27,23 @@ class Synthetic:
     
     def __init__(self, parameters):
         '''
-            'parameters' is a dictionary, contains following keys:
-            N: number of nodes
-            d: dimension of xi's
-            p: number of inequalities
-            m: number of equalities, i.e., shape of A_i's is (m, d)
-            
-            problem data:
-            Q shape: (N, d)
-            P shape: (N, d, d)
-            A shape: (N, m, d)
-            a shape: (N, d)
-            c shape: (N, )
-            aa shape: (N, d)
-            cc shape: (N, )
-            
-            x_star: optimal solution
-            opt_val: optimal value
+        'parameters' is a dictionary, contains following keys:
+        N: number of nodes
+        d: dimension of xi's
+        p: number of inequalities
+        m: number of equalities, i.e., shape of A_i's is (m, d)
+        
+        problem data:
+        Q shape: (N, d)
+        P shape: (N, d, d)
+        A shape: (N, m, d)
+        a shape: (N, d)
+        c shape: (N, )
+        aa shape: (N, d)
+        cc shape: (N, )
+        
+        x_star: optimal solution
+        opt_val: optimal value
         '''
         
         self.N = parameters['N']
@@ -59,7 +59,7 @@ class Synthetic:
         self.aa = np.zeros((self.N, self.d))
         self.cc = np.zeros((self.N))
         
-        self.prob = 0.
+        self.prob = 0. # to set the cvxpy porblem
         
         self.x_star = np.zeros((self.N, self.d))
         self.opt_val = 0.
