@@ -25,7 +25,7 @@ class Synthetic:
     
     prob_tpye = "Synthetic"
     
-    def __init__(self, parameters):
+    def __init__(self, parameters, debug=False):
         '''
         'parameters' is a dictionary, contains following keys:
         N: number of nodes
@@ -67,6 +67,7 @@ class Synthetic:
         # save data to the corresponding folder
         self.prob_name = f"N{self.N}" # name of problem instance
         self.save_dir = f'data/problem/{self.prob_tpye}/{self.prob_name}'
+        self.debug = debug
         
 
     def gen(self):
@@ -77,20 +78,24 @@ class Synthetic:
         logging.info(f"generating a {self.prob_tpye} problem: N={self.N}, " \
             f"d={self.d}, p={self.p}, m={self.m}")
         
-        self.generate_objective()
-        self.generate_constraints()
+        if self.debug:
+            self.generate_debug_exampe()
+        else:        
+            self.generate_objective()
+            self.generate_constraints()
+        # print(self.A.shape)
         
         if not os.path.exists(self.save_dir):
             os.makedirs(self.save_dir)
         np.save(f'{self.save_dir}/Q.npy', self.Q)
         np.save(f'{self.save_dir}/P.npy', self.P)
-        np.save(f'{self.save_dir}/A.npy', self.A)
+        # np save does not know captial letter?
+        np.save(f'{self.save_dir}/Amat.npy', self.A) 
         np.save(f'{self.save_dir}/a.npy', self.a)
         np.save(f'{self.save_dir}/c.npy', self.c)
         np.save(f'{self.save_dir}/aa.npy', self.aa)
         np.save(f'{self.save_dir}/cc.npy', self.cc)
-
-
+        # print(A.shape)
 
         # ============= use cvxpy to solve the problem ===================
         
@@ -117,24 +122,24 @@ class Synthetic:
         
         self.prob = cp.Problem(cp.Minimize(obj), all_cons)
         assert(self.prob.is_dcp())
-        self.prob.solve()
+        self.prob.solve(verbose=True)
         self.x_star = var_x.value
         self.opt_val = self.prob.value
         
-        logging.info(f'x* {self.x_star}, f* {self.opt_val}')
+        logging.info(f'x* {self.x_star.shape}, f* {self.opt_val}')
 
         # =========================== then save ==============================
         np.save(f'{self.save_dir}/x_star.npy', self.x_star)
         np.save(f'{self.save_dir}/opt_val.npy', [self.opt_val])
         
-        logging.info(f"generated problem saved in {self.save_dir}")
+        logging.info(f"generated problem saved in {self.save_dir}\n")
     
     def load(self):
         print(f"loading a {self.prob_tpye} problem, N={self.N}")
         try:
             self.Q = np.load(f'{self.save_dir}/Q.npy')
             self.P = np.load(f'{self.save_dir}/P.npy')
-            self.A = np.load(f'{self.save_dir}/A.npy')
+            self.A = np.load(f'{self.save_dir}/Amat.npy')
             self.a = np.load(f'{self.save_dir}/a.npy')
             self.c = np.load(f'{self.save_dir}/c.npy')
             self.aa = np.load(f'{self.save_dir}/aa.npy')
@@ -194,4 +199,17 @@ class Synthetic:
         
         logging.info(f'A: {self.A.shape}')
         logging.info(f'a: {self.a.shape}, c: {self.c.shape}')
-        logging.info(f'aa: {self.aa.shape}, ca: {self.cc.shape}')
+        logging.info(f'aa: {self.aa.shape}, cc: {self.cc.shape}')
+        
+    def generate_debug_exampe(self):
+        # N: 1
+        # d: 1
+        # p: 1
+        # m: 1
+        self.P[0,0,0] = 1
+        self.Q[0,0] = 2
+        self.A[0,0,0] = 4
+        self.a[0,0] = 1
+        self.c[0] = 2
+        self.aa[0,0] = 2
+        self.cc[0] = 5

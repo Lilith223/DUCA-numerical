@@ -52,6 +52,9 @@ class IPLUX:
         
         
         these are set in 'reset()':
+        iter_num: iteration k
+        self.init_time = time()
+        
         x_cur, x_avg: N dimensional vector
         t_cur: N dimensional vector
         u_cur: N dimensional vector
@@ -59,8 +62,9 @@ class IPLUX:
         q_cur: N dimensional vector
         
         no_ineq: if True, then there is no inequality
-        verbose: the bigger this is, more info displays
+        verbose: displays information
         log_dir
+        file_prefix
         init_time
         '''
 
@@ -74,6 +78,7 @@ class IPLUX:
         self.Q = prob.Q 
         self.P = prob.P 
         self.A = prob.A 
+        # print(prob.A.shape)
         self.a = prob.a 
         self.c = prob.c 
         self.aa = prob.aa 
@@ -89,14 +94,15 @@ class IPLUX:
         self.no_ineq = no_ineq
         self.verbose = verbose
         self.log_dir = log_dir
-        self.init_time = time()
+        self.file_prefix = f'{self.name}_a{self.alpha}_r{self.rho}'
         
         self._set_argmin_prob(no_ineq=no_ineq)
         self.reset()
 
     def reset(self):
         '''
-        iter_num = 0
+        iter_num = 1
+        self.init_time = time()
         
         decision vars:
         x_cur, x_nxt, x_avg: (N, d)
@@ -110,16 +116,18 @@ class IPLUX:
         obj_err_avg_log = []
         cons_vio_log = []
         cons_vio_avg_log = []
-        x_log = []
-        x_avg_log = []
+        x_dis_log = []
+        x_dis_avg_log = []
         '''
         
         print('reset')
         
         self.iter_num = 0
+        self.init_time = time()
         
         # initial conditions
         self.x_cur = np.zeros((self.N, self.d))
+        # self.x_cur = self.x_star.copy()
         self.t_cur = np.zeros((self.N, self.p))
         self.u_cur = np.zeros((self.N, (self.m+self.p)))
         self.z_cur = np.zeros((self.N, (self.m+self.p)))
@@ -142,10 +150,12 @@ class IPLUX:
         self.obj_err_avg_log = []
         self.cons_vio_log = []
         self.cons_vio_avg_log = []
-        self.x_log = []
-        self.x_avg_log = []
+        self.x_dis_log = []
+        self.x_dis_avg_log = []
 
         self.make_log()
+        if self.verbose:
+            self.show_status()
     
     
     def make_log(self):
@@ -155,26 +165,30 @@ class IPLUX:
         obj_err, cons_vio = self.compute_metrics()
         self.obj_err_log.append(obj_err)
         self.cons_vio_log.append(cons_vio)
-        self.x_log.append(self.x_cur.flatten())
+        self.x_dis_log.append(np.linalg.norm(self.x_cur-self.x_star))
         
         # running average
         obj_err_avg, cons_vio_avg = self.compute_metrics(avg=True)
         self.obj_err_avg_log.append(obj_err_avg)
         self.cons_vio_avg_log.append(cons_vio_avg)
-        self.x_avg_log.append(self.x_avg.flatten())
+        self.x_dis_avg_log.append(np.linalg.norm(self.x_avg-self.x_star))
         
         # logging.info(f'iter {self.iter_num}, obj err: {obj_err:.2e}, cons vio: {cons_vio:.2e}')
         
         if self.iter_num%100==0:
+            
+            logging.info(f'{self.name} alpha {self.alpha} rho {self.rho}, iter {self.iter_num}, obj err: {self.obj_err_log[-1]:.2e}, cons vio: {self.cons_vio_log[-1]:.2e}')
+            
             # last iterate
-            np.savetxt(f'{self.log_dir}/obj_err_{self.name}.txt', self.obj_err_log, delimiter=',')
-            np.savetxt(f'{self.log_dir}/cons_vio_{self.name}.txt', self.cons_vio_log, delimiter=',')
-            np.savetxt(f'{self.log_dir}/x_{self.name}.txt', self.x_log, delimiter=',')
+            np.savetxt(f'{self.log_dir}/{self.file_prefix}_oe.txt', self.obj_err_log, delimiter=',')
+            np.savetxt(f'{self.log_dir}/{self.file_prefix}_cv.txt', self.cons_vio_log, delimiter=',')
+            np.savetxt(f'{self.log_dir}/{self.file_prefix}_xd.txt', self.x_dis_log, delimiter=',')
             # running average
-            np.savetxt(f'{self.log_dir}/obj_err_avg_{self.name}.txt', self.obj_err_avg_log, delimiter=',')
-            np.savetxt(f'{self.log_dir}/cons_vio_avg_{self.name}.txt', self.cons_vio_avg_log, delimiter=',')
-            np.savetxt(f'{self.log_dir}/x_avg_{self.name}.txt', self.x_avg_log, delimiter=',')
-            print('saved')
+            np.savetxt(f'{self.log_dir}/{self.file_prefix}_oe_avg.txt', self.obj_err_avg_log, delimiter=',')
+            np.savetxt(f'{self.log_dir}/{self.file_prefix}_cv_avg.txt', self.cons_vio_avg_log, delimiter=',')
+            np.savetxt(f'{self.log_dir}/{self.file_prefix}_xd_avg.txt', self.x_dis_avg_log, delimiter=',')
+            
+            logging.info(f"time {time()-self.init_time:.2f}, saved\n")
 
     def _set_argmin_prob(self, no_ineq=False):
         '''
@@ -182,10 +196,11 @@ class IPLUX:
 
         self.param_PxQ = cp.Parameter(self.d) # P_i^T x_i^k + Q_i
         self.param_xik = cp.Parameter(self.d) # x_i^k
-        self.param_ATA = cp.Parameter((self.d, self.d)) # A_i^T A_i
+        self.param_Ai = cp.Parameter((self.m, self.d))
         # A_i^T (\sum_j w_{ij}(u_x^k)_j - 1/\rho(z_x^k)_i)
         self.param_Awuz = cp.Parameter(self.d) 
         self.param_qGy = cp.Parameter(self.p, nonneg=True) # (q_i^k + G_i(y_i^k))
+        self.param_qGyaa = cp.Parameter(self.d) # (q_i^k + G_i(y_i^k)) * a_i'
         self.param_aai = cp.Parameter(self.d)
         self.param_ai = cp.Parameter(self.d)
         self.param_ci = cp.Parameter(1)
@@ -195,7 +210,7 @@ class IPLUX:
 
         self.param_PxQ = cp.Parameter(self.d) # P_i^T x_i^k + Q_i
         self.param_xik = cp.Parameter(self.d) # x_i^k
-        self.param_A = cp.Parameter((self.m, self.d))
+        self.param_Ai = cp.Parameter((self.m, self.d))
         # self.param_ATA = cp.Parameter((self.d, self.d), PSD=True) # A_i^T A_i
         
         # A_i^T (\sum_j w_{ij}(u_x^k)_j - 1/\rho(z_x^k)_i)
@@ -229,11 +244,11 @@ class IPLUX:
         obj += cp.norm(self.var_xi, 1)
         obj += self.alpha * 0.5 * \
                 cp.quad_form(self.var_xi-self.param_xik, np.identity(self.d))
-        obj += (0.5 / self.rho) * cp.sum_squares(self.param_A @ self.var_xi)
+        obj += (0.5 / self.rho) * cp.sum_squares(self.param_Ai @ self.var_xi)
         obj += self.param_Awuz.T @ self.var_xi
         
         obj += self.param_qGy[0] * cp.quad_form(self.var_xi, np.identity(self.d))
-        obj += -2 * self.param_qGyaa @ self.var_xi
+        obj += -2 * self.param_qGyaa.T @ self.var_xi
 
         cons = [
             cp.quad_form(self.var_xi-self.param_ai, np.identity(self.d)) \
@@ -244,19 +259,53 @@ class IPLUX:
         logging.info(f'self.prob {self.prob}')
         assert self.prob.is_dcp(dpp=True)
 
-    def _solve_argmin_prob(self, ci, xik, qGyd):
+    def _solve_argmin_prob(self, i, xik, tik, wuik, zik, qik):
         '''
-        ci: float
-        xik: float
-        qGyd: float, (q_i^k + G_i(y_i^k)) * d_i
+        i: agent number
+        xik: x_i^k (d, )
+        tik: t_i^k (p, )
+        wuik: \sum_j w_{ij}(u_x^k)_j (m+p, )
+        zik: z_i^k (m+p, )
         
-        -> 1 dimensional vector
+        -> x_^{k+1}: (d, )
         '''
         
-        # print(f'para: ci {ci}, xik {xik}, qGyd, {qGyd}')
-        self.param_ci.value = [ci]
-        self.param_xik.value = [xik]
-        self.param_qGyd.value = [qGyd]
+        # NEED TO SET:
+        # self.param_PxQ = cp.Parameter(self.d) # P_i^T x_i^k + Q_i
+        # self.param_xik = cp.Parameter(self.d) # x_i^k
+        # self.param_Ai = cp.Parameter((self.m, self.d))
+        # # A_i^T (\sum_j w_{ij}(u_x^k)_j - 1/\rho(z_x^k)_i)
+        # self.param_Awuz = cp.Parameter(self.d) 
+        # self.param_qGy = cp.Parameter(self.p, nonneg=True) # (q_i^k + G_i(y_i^k))
+        # self.param_qGyaa = cp.Parameter(self.d) # (q_i^k + G_i(y_i^k)) * a_i'
+        # self.param_aai = cp.Parameter(self.d)
+        # self.param_ai = cp.Parameter(self.d)
+        # self.param_ci = cp.Parameter(1)
+        
+        m = self.m
+        self.param_PxQ.value = self.P[i].T@xik + self.Q[i]
+        self.param_xik.value = xik
+        self.param_Ai.value = self.A[i]
+        self.param_Awuz.value = self.A[i].T @ (wuik[:m] - zik[:m]/self.rho)
+        qGy = qik + self.gi(i, xik) - tik
+        self.param_qGy.value = qGy # shape (p, ) = (1, )
+        self.param_qGyaa.value = qGy[0] * self.aa[i] 
+        self.param_aai.value = self.aa[i]
+        self.param_ai.value = self.a[i]
+        self.param_ci.value = [self.c[i]]
+        
+        if self.verbose:
+            print()
+            print(f'param_PxQ.value {self.param_PxQ.value}')
+            print(f'param_xik.value {self.param_xik.value}')
+            print(f'param_Ai.value {self.param_Ai.value}')
+            print(f'param_Awuz.value {self.param_Awuz.value}')
+            print(f'param_qGy.value {self.param_qGy.value}')
+            print(f'param_qGyaa.value {self.param_qGyaa.value}')
+            print(f'param_aai.value {self.param_aai.value}')
+            print(f'param_ai.value {self.param_ai.value}')
+            print(f'param_ci.value {self.param_ci.value}')
+        
         self.prob.solve()
         
         return self.var_xi.value
@@ -279,7 +328,8 @@ class IPLUX:
         ''' -> obj_err: float, cons_vio: float'''
         
         fun_val = 0.
-        cons_val = np.zeros(self.p)  # constraint value
+        cons_ineq_val = np.zeros(self.p)  # inequality constraint values
+        cons_eq_val = np.zeros(self.m)  # equality constraint values
         # constraint violation, including local set violation
         cons_vio = 0.
         
@@ -289,72 +339,90 @@ class IPLUX:
         
         for i in range(self.N):            
             fun_val += self.fi(i, x[i])            
-            cons_val += self.gi(i, x[i]) # p dimensional vector            
+            cons_ineq_val += self.gi(i, x[i]) # p dimensional vector
+            cons_eq_val += self.A[i]@x[i]  # m dimensional vector                
             cons_vio += self.local_set_violation(i, x[i]) 
                         
-        cons_vio += np.sum(np.max([cons_val, np.zeros(self.p)], axis=0))
+        cons_vio += np.sum(np.max([cons_ineq_val, np.zeros(self.p)], axis=0))
+        cons_vio += np.linalg.norm(cons_eq_val)
         obj_err = abs(fun_val - self.opt_val)
         
         return obj_err, cons_vio
 
     def step(self):
-        if self.verbose >= 1:
-            logging.info(f'\nstep {self.iter_num}')
+        self.iter_num += 1
         
-        u_wavg = self.W @ self.u_cur # weighted average by W
-        # print(f'u_wavg {u_wavg.shape}')
+        # weighted average of u by W
+        u_wavg = np.zeros((self.N, (self.m+self.p))) 
+        for i in range(self.N):
+            u_wavg[i] = self.u_cur.T @ self.W[i]
+            #   (6,)  =     (6,3)   @ (3,) 
+        # print(f'u_wavg {u_wavg}')
         
         for i in range(self.N):
-            ci = self.c[i]
-            di = self.d[i]
             xik = self.x_cur[i]
             tik = self.t_cur[i]
             zik = self.z_cur[i]
             qik = self.q_cur[i]
-            Gi_yik = self.gi(i, xik) - tik # G_i(y_i^k)
-            # u_wavg = self.W[i] @ self.u_cur # weighted average by W
-            # u_havg = self.H[i] @ self.u_cur # weighted average by H
-            # print(f'u {self.u_cur}, u_wavg {u_wavg}, u_havg {u_havg}')
-            
-            # (q_i^k + G_i(y_i^k)) * d_i
-            qGyd = (qik + Gi_yik) * di
-            # print(f'qGyd {qGyd}')
+            Gi_yik = self.gi(i, xik) - tik
+            # print(f'Gi_yik {Gi_yik}')
+            m = self.m
             
             # updates
-            self.x_nxt[i] = self._solve_argmin_prob(ci, xik, qGyd)
+            self.x_nxt[i] = self._solve_argmin_prob(i, xik, 
+                                                    tik, u_wavg[i], zik, qik)
             self.t_nxt[i] = (
                 self.alpha * tik 
-                + zik / self.rho - u_wavg[i]
+                + zik[m:] / self.rho - u_wavg[i,m:]
                 + qik + Gi_yik 
                 ) / (self.alpha + 1 / self.rho)
-            self.u_nxt[i] = u_wavg[i] + (self.t_nxt[i] - zik) / self.rho
+            
+            self.u_nxt[i] = u_wavg[i] + (
+                np.r_[self.A[i]@self.x_nxt[i], self.t_nxt[i]] - zik) / self.rho
             # z_nxt needs all u_nxt[j]
             Gi_yi_nxt = self.gi(i, self.x_nxt[i]) - self.t_nxt[i]
             self.q_nxt[i] = max(-Gi_yi_nxt, qik + Gi_yi_nxt)
             
-            if self.verbose >= 1:
-                logging.info(f'q{i}+G{i}(y{i}) {self.q_nxt[i] + Gi_yi_nxt:.2e}')
-            
         # z_nxt needs all u_nxt[j]
-        self.z_nxt = self.z_cur + self.rho * (self.H @ self.u_nxt)
+        u_havg = np.zeros((self.N, (self.m+self.p))) 
+        for i in range(self.N):
+            u_havg[i] = self.u_nxt.T @ self.H[i]
+        self.z_nxt = self.z_cur + self.rho * u_havg
         
-        if self.verbose >= 1:
-            logging.info(f'dx {self.x_nxt-self.x_cur}, dt {self.t_nxt-self.t_cur}, du {self.u_nxt-self.u_cur}, dz {self.z_nxt-self.z_cur}, dq {self.q_nxt-self.q_cur}')
+        # logging.info(f'dx {self.x_nxt-self.x_cur}, dt {self.t_nxt-self.t_cur}, du {self.u_nxt-self.u_cur}, dz {self.z_nxt-self.z_cur}, dq {self.q_nxt-self.q_cur}')
         
         self.x_cur = self.x_nxt.copy()
         self.t_cur = self.t_nxt.copy()
         self.u_cur = self.u_nxt.copy()
         self.z_cur = self.z_nxt.copy()
         self.q_cur = self.q_nxt.copy()
-        # print(f'hat_x {self.hat_x.shape}, lambd {self.lambd.shape}')
         
-        self.iter_num += 1
         self.x_avg = (self.x_avg * self.iter_num + self.x_cur) / (self.iter_num + 1)
-        
         self.make_log()
-        if self.iter_num % 100 == 0:
-            logging.info(f"running time for {self.name} = {time()-self.init_time:.2f}")
+        
+        if self.verbose:
+            self.show_status()
+                    
             
+    
+    def show_status(self):
+        # self.iter_num = 0
+        # self.init_time = time()
+        
+        # # initial conditions
+        # self.x_cur = np.zeros((self.N, self.d))
+        # self.t_cur = np.zeros((self.N, self.p))
+        # self.u_cur = np.zeros((self.N, (self.m+self.p)))
+        # self.z_cur = np.zeros((self.N, (self.m+self.p)))
+        # self.q_cur = np.zeros((self.N, self.p))
+        logging.info(f'iteration {self.iter_num}')
+        logging.info(f'objective error: {self.obj_err_log[-1]:.2e}, constraint violation: {self.cons_vio_log[-1]:.2e}')
+        logging.info(f'x({self.iter_num}): {self.x_cur}')
+        logging.info(f't({self.iter_num}): {self.t_cur}')
+        logging.info(f'u({self.iter_num}): {self.u_cur}')
+        logging.info(f'z({self.iter_num}): {self.z_cur}')
+        logging.info(f'q({self.iter_num}): {self.q_cur}')
+        logging.info(f'\n')
         
     
     

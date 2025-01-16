@@ -62,22 +62,32 @@ class MyFigure:
         self.yscale = yscale
         
         self.label_line = dict()
+        self.label_style = dict()
     
-    def add_line(self, label:str, log:np.ndarray):
+    def add_line(self, label:str, log:np.ndarray, style=''):
         self.label_line[label] = log
+        self.label_style[label] = style
+        
+    def add_line_file(self, label:str, file:str, style=''):
+        log = np.loadtxt(file)
+        self.add_line(label, log, style=style)
     
     def paint(self, MAX_ITER=1000, nonnegy=False):
-        fig, ax = plt.subplots()   
+        fig, ax = plt.subplots(figsize=(50, 30))   
         # plt.plot(np.loadtxt('logs/cons_val_B_DPP_C0.27.txt'), label=r'$\mathrm{B-DPP}$', linestyle='-')
         
         for label, line in self.label_line.items():
-            ax.plot(line, label=label, linestyle='--')
+            if self.label_style[label] == '':
+                ax.plot(line, label=label, linestyle='--')
+            else:
+                ax.plot(line, self.label_style[label], label=label, markersize=20)
         # plt.plot(np.loadtxt('logs/cons_val_B_DPP_C1.5.txt'), label=r'$\mathrm{B-DPP}$', linestyle='--')
         # plt.plot(np.loadtxt('logs/cons_val_C_SP_SG.txt'), label=r'$\mathrm{C-SP-SG\ [13]}$', linestyle='--')
         # plt.plot(np.loadtxt('logs/cons_val_DPD_TV.txt'), label=r'$\mathrm{DPD-TV\ [17]}$', linestyle='--')
         # plt.plot(np.loadtxt('logs/cons_val_Falsone.txt'), label=r'$\mathrm{Dual\ Subgradient\ [11]}$', linestyle='--')
         plt.axhline(y=0, color='black', linestyle='--', linewidth=1)  # add horizontal line at y=0
         ax.set_xlim(0, MAX_ITER)
+        ax.set_ylim(1e-4, 5e0)
         # if nonnegy:
         #     plt.ylim(bottom=0)
         ax.set_yscale(self.yscale)

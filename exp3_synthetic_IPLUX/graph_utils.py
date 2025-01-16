@@ -4,6 +4,7 @@ import math
 import os
 import matplotlib as mpl
 import matplotlib.pyplot as plt
+import cvxpy as cp
 mpl.use('agg')
 
 def gen_B_conn_graphs(num_of_nodes, num_of_edges, B):
@@ -91,3 +92,40 @@ def graph_gen(num_node, num_edge, B=1):
         metropolis = get_metropolis(adj_subG[b])
         W[b] = get_doubly_stochastic(metropolis)
     np.save(f'{save_dir}/subgraph_W.npy', W[0])
+    
+    
+def L_g(prob, d, i):
+    x = cp.Variable(d)
+    a_i = prob.a[i]
+    c_i = prob.c[i]
+
+    aa_i = prob.aa[i]
+    cc_i = prob.cc[i]
+
+    prob = cp.norm(2*(x-aa_i))
+    constraint = [cp.norm(x-a_i)**2 <= c_i]
+    prob = cp.Problem(cp.Minimize(prob),constraint)
+    prob.solve()
+
+    return prob.value
+
+
+
+def find_alpha_lower_bound(param, prob):
+    N = param['N']
+    d = param['d']
+    
+    max_L_f = 0
+    max_L_g = 0
+    for i in range(N):
+        P_i = prob.P[i]
+        L_f = max(np.linalg.eigvals(2*P_i)) 
+        if L_f >= max_L_f:
+            max_L_f = L_f
+        L_g_i = L_g(prob, d, i)
+        if L_g_i > max_L_g:
+            max_L_g = L_g_i
+
+    lower = max_L_f + 1 + max_L_g**2
+    
+    return np.ceil(np.real(lower))
