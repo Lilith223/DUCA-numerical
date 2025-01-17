@@ -306,7 +306,8 @@ class IPLUX:
             print(f'param_ai.value {self.param_ai.value}')
             print(f'param_ci.value {self.param_ci.value}')
         
-        self.prob.solve()
+        self.prob.solve(solver='MOSEK')
+        # self.prob.solve()
         
         return self.var_xi.value
     

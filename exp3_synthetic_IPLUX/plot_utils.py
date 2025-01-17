@@ -87,7 +87,7 @@ class MyFigure:
         # plt.plot(np.loadtxt('logs/cons_val_Falsone.txt'), label=r'$\mathrm{Dual\ Subgradient\ [11]}$', linestyle='--')
         plt.axhline(y=0, color='black', linestyle='--', linewidth=1)  # add horizontal line at y=0
         ax.set_xlim(0, MAX_ITER)
-        ax.set_ylim(1e-4, 5e0)
+        # ax.set_ylim(1e-4, 5e0)
         # if nonnegy:
         #     plt.ylim(bottom=0)
         ax.set_yscale(self.yscale)

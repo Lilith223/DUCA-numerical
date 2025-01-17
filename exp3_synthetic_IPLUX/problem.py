@@ -122,7 +122,8 @@ class Synthetic:
         
         self.prob = cp.Problem(cp.Minimize(obj), all_cons)
         assert(self.prob.is_dcp())
-        self.prob.solve(verbose=True)
+        
+        self.prob.solve(solver='MOSEK', verbose=True)
         self.x_star = var_x.value
         self.opt_val = self.prob.value
         
