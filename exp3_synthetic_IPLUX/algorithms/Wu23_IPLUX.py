@@ -2,6 +2,7 @@ import numpy as np
 import cvxpy as cp
 from math import log
 from time import time
+import os
 
 # Set up the logger to print info messages for understandability.
 import logging
@@ -23,8 +24,7 @@ class IPLUX:
         alpha, 
         rho, 
         no_ineq=False, 
-        verbose=0, 
-        log_dir='log'):
+        verbose=0):
         '''
         these are set here:
         
@@ -93,7 +93,7 @@ class IPLUX:
         
         self.no_ineq = no_ineq
         self.verbose = verbose
-        self.log_dir = log_dir
+        self.log_dir = f'log/N{self.N}'
         self.file_prefix = f'{self.name}_a{self.alpha}_r{self.rho}'
         
         self._set_argmin_prob(no_ineq=no_ineq)
@@ -179,6 +179,9 @@ class IPLUX:
             
             logging.info(f'{self.name} alpha {self.alpha} rho {self.rho}, iter {self.iter_num}, obj err: {self.obj_err_log[-1]:.2e}, cons vio: {self.cons_vio_log[-1]:.2e}')
             
+            if not os.path.exists(self.log_dir):
+                os.makedirs(self.log_dir)
+            
             # last iterate
             np.savetxt(f'{self.log_dir}/{self.file_prefix}_oe.txt', self.obj_err_log, delimiter=',')
             np.savetxt(f'{self.log_dir}/{self.file_prefix}_cv.txt', self.cons_vio_log, delimiter=',')
@@ -208,7 +211,7 @@ class IPLUX:
         
         self.var_xi = cp.Variable(self.d)
 
-        self.param_PxQ = cp.Parameter(self.d) # P_i^T x_i^k + Q_i
+        self.param_PxQ = cp.Parameter(self.d) # 2*P_i^T x_i^k + Q_i
         self.param_xik = cp.Parameter(self.d) # x_i^k
         self.param_Ai = cp.Parameter((self.m, self.d))
         # self.param_ATA = cp.Parameter((self.d, self.d), PSD=True) # A_i^T A_i
@@ -283,7 +286,7 @@ class IPLUX:
         # self.param_ci = cp.Parameter(1)
         
         m = self.m
-        self.param_PxQ.value = self.P[i].T@xik + self.Q[i]
+        self.param_PxQ.value = 2*self.P[i].T@xik + self.Q[i]
         self.param_xik.value = xik
         self.param_Ai.value = self.A[i]
         self.param_Awuz.value = self.A[i].T @ (wuik[:m] - zik[:m]/self.rho)
@@ -347,6 +350,7 @@ class IPLUX:
         cons_vio += np.sum(np.max([cons_ineq_val, np.zeros(self.p)], axis=0))
         cons_vio += np.linalg.norm(cons_eq_val)
         obj_err = abs(fun_val - self.opt_val)
+        # obj_err = fun_val - self.opt_val
         
         return obj_err, cons_vio
 
