@@ -30,13 +30,13 @@ class Synthetic:
         'parameters' is a dictionary, contains following keys:
         N: number of nodes
         d: dimension of xi's
-        p: number of inequalities
-        m: number of equalities, i.e., shape of A_i's is (m, d)
+        m: number of inequalities
+        p: number of equalities, i.e., shape of A_i's is (p, d)
         
         problem data:
         Q shape: (N, d)
         P shape: (N, d, d)
-        A shape: (N, m, d)
+        A shape: (N, p, d)
         a shape: (N, d)
         c shape: (N, )
         aa shape: (N, d)
@@ -48,12 +48,12 @@ class Synthetic:
         
         self.N = parameters['N']
         self.d = parameters['d']
-        self.p = parameters['p']
         self.m = parameters['m']
+        self.p = parameters['p']
         
         self.Q = np.zeros((self.N, self.d))
         self.P = np.zeros((self.N, self.d, self.d))
-        self.A = np.zeros((self.N, self.m, self.d))
+        self.A = np.zeros((self.N, self.p, self.d))
         self.a = np.zeros((self.N, self.d))
         self.c = np.zeros((self.N))
         self.aa = np.zeros((self.N, self.d))
@@ -76,7 +76,7 @@ class Synthetic:
         # ============ generate and save problem data ====================
         
         logging.info(f"generating a {self.prob_tpye} problem: N={self.N}, " \
-            f"d={self.d}, p={self.p}, m={self.m}")
+            f"d={self.d}, m={self.m}, p={self.p}")
         
         if self.debug:
             self.generate_debug_exampe()
@@ -123,7 +123,8 @@ class Synthetic:
         self.prob = cp.Problem(cp.Minimize(obj), all_cons)
         assert(self.prob.is_dcp())
         
-        self.prob.solve(solver='MOSEK', verbose=True)
+        # self.prob.solve(solver='MOSEK', verbose=True)
+        self.prob.solve(solver='MOSEK')
         self.x_star = var_x.value
         self.opt_val = self.prob.value
         
@@ -192,7 +193,7 @@ class Synthetic:
         '''
         
         for i in range(self.N):
-            self.A[i] = np.random.rand(self.m, self.d)
+            self.A[i] = np.random.rand(self.p, self.d)
             self.a[i] = np.random.rand(self.d)
             self.c[i] = np.random.rand() + self.a[i].T @ self.a[i]
             self.aa[i] = np.random.rand(self.d)

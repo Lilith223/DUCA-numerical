@@ -9,74 +9,78 @@ import logging
 import sys
 logging.basicConfig(level=logging.INFO, stream=sys.stdout, format='')
 
-class IPLUX:
+class UDC:
     '''
     problem data:
         Q shape: (N, d)
         P shape: (N, d, d)
-        A shape: (N, m, d)
+        A shape: (N, p, d)
         a shape: (N, d)
         c shape: (N, )
         aa shape: (N, d)
         cc shape: (N, )
         
     algorithm parameters:
-        alpha
-        rho
-        W, H: (N, N) weight matrices
+        alpha (for UDC_prox)
+        A, H1, H2, H2_half, D: (N, N) weight matrices. H1 for H, H2 for H tiled
     '''
     
-    name = "IPLUX"
+    name = "UDC"
     
     def __init__(
         self, 
         prob, 
         network, 
-        alpha, 
-        rho, 
-        no_ineq=False, 
+        rho,
+        alpha=0,
+        param_setting='proximal_tracking',
+        prox=False, 
         verbose=0):
         '''
         these are set here:
-        
-        problem parameters:
-        N: number of nodes
-        d: dimension of xi's
-        p: number of inequalities
-        m: number of equalities, i.e., shape of A_i's is (m, d)
-        x_star: N dimensional vector
-        opt_val: float
-        
-        problem data:
-        Q shape: (N, d)
-        P shape: (N, d, d)
-        A shape: (N, m, d)
-        a shape: (N, d)
-        c shape: (N, )
-        aa shape: (N, d)
-        cc shape: (N, )
-        
-        algorithm parameters:
-        alpha
-        rho
-        W, H: (N, N) weight matrices
+            problem parameters:
+                N: number of nodes
+                d: dimension of xi's
+                m: number of inequalities
+                p: number of equalities, i.e., shape of A_i's is (p, d)
+                x_star: N dimensional vector
+                opt_val: float
+            
+            problem data:
+                Q shape: (N, d)
+                P shape: (N, d, d)
+                A_data shape: (N, p, d)
+                a shape: (N, d)
+                c shape: (N, )
+                aa shape: (N, d)
+                cc shape: (N, )
+            
+            algorithm parameters:
+                rho
+                alpha (positve for UDC_prox, 0 for UDC)
+                A, H1, H2, H2_half, D: (N, N) weight matrices. 
+                    A: P_A
+                    H1: P_H
+                    H2: P_{\tilde{H}}
+                    H2_half: P_{\tilde{H}}^{1/2}
+                    D: P_D
+                    
+            verbose: displays information
+            log_dir
+            file_prefix
         
         
         these are set in 'reset()':
-        iter_num: iteration k
-        self.init_time = time()
-        
-        x_cur, x_nxt, x_avg: (N, d)
-        t_cur, t_nxt: (N, p)
-        u_cur, u_nxt: (N, m+p)
-        z_cur, z_nxt: (N, m+p)
-        q_cur, q_nxt: (N, p)
-        
-        no_ineq: if True, then there is no inequality
-        verbose: displays information
-        log_dir
-        file_prefix
-        init_time
+            iter_num: iteration number
+            self.init_time = time()
+            
+            x_cur, x_nxt, x_avg: (N, d)
+            y_mu_cur, y_mu_nxt: (N, m)
+            y_lam_cur, y_lam_nxt: (N, p)
+            z_mu_cur, z_mu_nxt: (N, m)
+            z_lam_cur, z_lam_nxt: (N, p)
+            
+            init_time
         '''
 
         self.N = prob.N
@@ -88,7 +92,7 @@ class IPLUX:
         
         self.Q = prob.Q 
         self.P = prob.P 
-        self.A = prob.A 
+        self.A_data = prob.A 
         # print(prob.A.shape)
         self.a = prob.a 
         self.c = prob.c 
@@ -97,17 +101,23 @@ class IPLUX:
         
         self.alpha = alpha
         self.rho = rho
-        self.W = (np.identity(prob.N) + network) * 0.5
-        self.H = (np.identity(prob.N) - network) * 0.5
+
+        if param_setting == 'proximal_tracking':
+            print(f'UDC setting: {param_setting}')
+            self.name += '_pt'
+            self.A, self.H1, self.H2, self.H2_half, self.D = \
+                pt_param_setting(network, rho)
+        # self.W = (np.identity(prob.N) + network) * 0.5
+        # self.H = (np.identity(prob.N) - network) * 0.5
         # self.W = network
         # self.H = np.identity(prob.N) - network
         
-        self.no_ineq = no_ineq
         self.verbose = verbose
         self.log_dir = f'log/N{self.N}'
+        
         self.file_prefix = f'{self.name}_a{self.alpha}_r{self.rho}'
         
-        self._set_argmin_prob(no_ineq=no_ineq)
+        self._set_argmin_prob()
         self.reset()
 
     def reset(self):
@@ -117,10 +127,10 @@ class IPLUX:
         
         decision vars:
         x_cur, x_nxt, x_avg: (N, d)
-        t_cur, t_nxt: (N, p)
-        u_cur, u_nxt: (N, m+p)
-        z_cur, z_nxt: (N, m+p)
-        q_cur, q_nxt: (N, p)
+        y_mu_cur, y_mu_nxt: (N, m)
+        y_lam_cur, y_lam_nxt: (N, p)
+        z_mu_cur, z_mu_nxt: (N, m)
+        z_lam_cur, z_lam_nxt: (N, p)
         
         log lists:
         obj_err_log = []
@@ -139,22 +149,18 @@ class IPLUX:
         # initial conditions
         self.x_cur = np.zeros((self.N, self.d))
         # self.x_cur = self.x_star.copy()
-        self.t_cur = np.zeros((self.N, self.p))
-        self.u_cur = np.zeros((self.N, (self.m+self.p)))
-        self.z_cur = np.zeros((self.N, (self.m+self.p)))
-        self.q_cur = np.zeros((self.N, self.p))
+        self.y_mu_cur = np.zeros((self.N, self.m))
+        self.y_lam_cur = np.zeros((self.N, self.p))
+        self.z_mu_cur = np.zeros((self.N, self.m))
+        self.z_lam_cur = np.zeros((self.N, self.p))
         
         self.x_avg = self.x_cur.copy() # for running average
         
-        self.x_nxt = np.zeros((self.N, self.d))
-        self.t_nxt = np.zeros((self.N, self.p))
-        self.u_nxt = np.zeros((self.N, (self.m+self.p)))
-        self.z_nxt = np.zeros((self.N, (self.m+self.p)))
-        self.q_nxt = np.zeros((self.N, self.p))
+        self.y_mu_nxt = np.zeros((self.N, self.m))
+        self.y_lam_nxt = np.zeros((self.N, self.p))
+        self.z_mu_nxt = np.zeros((self.N, self.m))
+        self.z_lam_nxt = np.zeros((self.N, self.p))
         
-        for i in range(self.N):
-            Gi_yi0 = self.gi(i, self.x_cur[i]) - self.t_cur[i]
-            self.q_cur[i] = np.max([np.zeros(self.p), -Gi_yi0], axis=0)
         
         # reset logs
         self.obj_err_log = []
@@ -167,7 +173,7 @@ class IPLUX:
         self.make_log()
         if self.verbose:
             self.show_status()
-    
+
     
     def make_log(self):
         ''' save log every 100 iterations '''
@@ -204,7 +210,7 @@ class IPLUX:
             
             logging.info(f"time {time()-self.init_time:.2f}, saved\n")
 
-    def _set_argmin_prob(self, no_ineq=False):
+    def _set_argmin_prob(self):
         '''
         var_xi: (d, )
 
@@ -222,8 +228,15 @@ class IPLUX:
         
         self.var_xi = cp.Variable(self.d)
 
-        self.param_PxQ = cp.Parameter(self.d) # 2*P_i^T x_i^k + Q_i
+        self.param_Pi_sqrt = cp.Parameter((self.d, self.d)) # P_i^{1/2}
+        self.param_Qi = cp.Parameter(self.d) # Q_i
         self.param_xik = cp.Parameter(self.d) # x_i^k
+        self.param_aai = cp.Parameter(self.d)
+        self.param_cci = cp.Parameter(1)
+        
+        
+        # \sum_j A_{ij}(y_\mu^k)_j - \sum_j (\tilde{H}^{1/2})_{ij}(z_\mu^k)_j
+        self.param_AyHz_mu = cp.Parameter(self.m) 
         self.param_Ai = cp.Parameter((self.m, self.d))
         # self.param_ATA = cp.Parameter((self.d, self.d), PSD=True) # A_i^T A_i
         
@@ -233,15 +246,17 @@ class IPLUX:
         self.param_qGy = cp.Parameter(self.p, nonneg=True) 
         # (q_i^k + G_i(y_i^k)) * a_i'
         self.param_qGyaa = cp.Parameter(self.d) 
-        self.param_aai = cp.Parameter(self.d)
         self.param_ai = cp.Parameter(self.d)
         self.param_ci = cp.Parameter(1)
         
-        # obj = <2*P_i^T x_i^k +　Q_i, x_i> + ||x_i||_1 
+        # obj = x_i^k^T P_i x_i^k +　Q_i^T x_i + ||x_i||_1 
         #       + \alpha/2 * ||x_i-x_i^k||^2
-        #       + 1/(2\rho) * ||A_i x_i||^2 
-        #       + <\sum_j w_{ij}(u_x^k)_j - 1/\rho(z_x^k)_i, A_ix_i>
-        #       + <q_i^k + g_i(x_i^k) - t_i^k, g_i(x_i)>
+        #       + ||[ \sum_j A_{ij}(y_\mu^k)_j 
+        #            -\sum_j (\tilde{H}^{1/2})_{ij}(z_\mu^k)_j 
+        #            +||x_i - aa_i||^2-cc_i ]_+||^2/(2*(P_D)_i)
+        #       + ||  \sum_j A_{ij}(y_\lam^k)_j 
+        #            -\sum_j (\tilde{H}^{1/2})_{ij}(z_\lam^k)_j 
+        #            +A_i x_i ||^2/(2*(P_D)_i)
         
         # quad_form(x, para) is not DPP
         # obj += (0.5 / self.rho) * \
@@ -254,15 +269,21 @@ class IPLUX:
         
         
         obj = 0.0
-        obj += self.param_PxQ.T @ self.var_xi
+        obj += cp.sum_squares(self.param_Pi_sqrt@self.var_xi)
+        obj += self.param_Qi.T @ self.var_xi 
         obj += cp.norm(self.var_xi, 1)
         obj += self.alpha * 0.5 * \
                 cp.quad_form(self.var_xi-self.param_xik, np.identity(self.d))
-        obj += (0.5 / self.rho) * cp.sum_squares(self.param_Ai @ self.var_xi)
-        obj += self.param_Awuz.T @ self.var_xi
+                
+        gixi = cp.sum_squares(self.var_xi-self.param_aai)-self.param_cci
+        obj += cp.sum_squares(cp.pos(self.param_AyHz_mu+gixi))
+        # obj += cp.sum_squares(self.param_AyHz_mu + gixi)
         
-        obj += self.param_qGy[0] * cp.quad_form(self.var_xi, np.identity(self.d))
-        obj += -2 * self.param_qGyaa.T @ self.var_xi
+        # obj += (0.5 / self.rho) * cp.sum_squares(self.param_Ai @ self.var_xi)
+        # obj += self.param_Awuz.T @ self.var_xi
+        
+        # obj += self.param_qGy[0] * cp.quad_form(self.var_xi, np.identity(self.d))
+        # obj += -2 * self.param_qGyaa.T @ self.var_xi
 
         cons = [
             cp.quad_form(self.var_xi-self.param_ai, np.identity(self.d)) \
@@ -434,11 +455,27 @@ class IPLUX:
         logging.info(f'iteration {self.iter_num}')
         logging.info(f'objective error: {self.obj_err_log[-1]:.2e}, constraint violation: {self.cons_vio_log[-1]:.2e}')
         logging.info(f'x({self.iter_num}): {self.x_cur}')
-        logging.info(f't({self.iter_num}): {self.t_cur}')
-        logging.info(f'u({self.iter_num}): {self.u_cur}')
-        logging.info(f'z({self.iter_num}): {self.z_cur}')
-        logging.info(f'q({self.iter_num}): {self.q_cur}')
+        # logging.info(f't({self.iter_num}): {self.t_cur}')
+        # logging.info(f'u({self.iter_num}): {self.u_cur}')
+        # logging.info(f'z({self.iter_num}): {self.z_cur}')
+        # logging.info(f'q({self.iter_num}): {self.q_cur}')
         logging.info(f'\n')
         
     
+def pt_param_setting(W, rho):
+    '''
+    W: (N, N) doubly stochastic
+    -> A, H1, H2, H2_half, D
+    '''
+    
+    N = W.shape[0]
+    I = np.identity(N)
+    
+    A = rho * W @ W
+    D = rho * I
+    H1 = I - W @ W
+    H2_half = I - W
+    H2 = H2_half @ H2_half
+    
+    return A, H1, H2, H2_half, D
     
