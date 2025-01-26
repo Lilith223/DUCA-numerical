@@ -58,7 +58,7 @@ class UDC:
             algorithm parameters:
                 rho
                 alpha (positve for UDC_prox, 0 for UDC)
-                A, H1, H2, H2_half, D: (N, N) weight matrices. 
+                A_weight, H1, H2, H2_half, D: (N, N) weight matrices. 
                     A: P_A
                     H1: P_H
                     H2: P_{\tilde{H}}
@@ -105,7 +105,7 @@ class UDC:
         if param_setting == 'proximal_tracking':
             print(f'UDC setting: {param_setting}')
             self.name += '_pt'
-            self.A, self.H1, self.H2, self.H2_half, self.D = \
+            self.A_weight, self.H1, self.H2, self.H2_half, self.D = \
                 pt_param_setting(network, rho)
         # self.W = (np.identity(prob.N) + network) * 0.5
         # self.H = (np.identity(prob.N) - network) * 0.5
@@ -320,8 +320,8 @@ class UDC:
         m = self.m
         self.param_PxQ.value = 2*self.P[i].T@xik + self.Q[i]
         self.param_xik.value = xik
-        self.param_Ai.value = self.A[i]
-        self.param_Awuz.value = self.A[i].T @ (wuik[:m] - zik[:m]/self.rho)
+        self.param_Ai.value = self.A_data[i]
+        self.param_Awuz.value = self.A_data[i].T @ (wuik[:m] - zik[:m]/self.rho)
         qGy = qik + self.gi(i, xik) - tik
         self.param_qGy.value = qGy # shape (p, ) = (1, )
         self.param_qGyaa.value = qGy[0] * self.aa[i] 
@@ -351,8 +351,8 @@ class UDC:
         return xi.T@self.P[i]@xi + self.Q[i].T@xi + np.linalg.norm(xi,1)
     
     def gi(self, i, xi):
-        ''' i: int, xi: (d, ) -> (p, )'''
-        res = np.zeros(self.p)
+        ''' i: int, xi: (d, ) -> (m, )'''
+        res = np.zeros(self.m)
         res[0] = (xi-self.aa[i]).T @ (xi-self.aa[i]) - self.cc[i]
         return res
     
@@ -364,8 +364,8 @@ class UDC:
         ''' -> obj_err: float, cons_vio: float'''
         
         fun_val = 0.
-        cons_ineq_val = np.zeros(self.p)  # inequality constraint values
-        cons_eq_val = np.zeros(self.m)  # equality constraint values
+        cons_ineq_val = np.zeros(self.m)  # inequality constraint values
+        cons_eq_val = np.zeros(self.p)  # equality constraint values
         # constraint violation, including local set violation
         cons_vio = 0.
         
@@ -375,11 +375,12 @@ class UDC:
         
         for i in range(self.N):            
             fun_val += self.fi(i, x[i])            
-            cons_ineq_val += self.gi(i, x[i]) # p dimensional vector
-            cons_eq_val += self.A[i]@x[i]  # m dimensional vector                
+            cons_ineq_val += self.gi(i, x[i]) # m dimensional vector
+            # print(self.A_data[i].shape, x[i].shape)
+            cons_eq_val += self.A_data[i]@x[i]  # p dimensional vector                
             cons_vio += self.local_set_violation(i, x[i]) 
                         
-        cons_vio += np.sum(np.max([cons_ineq_val, np.zeros(self.p)], axis=0))
+        cons_vio += np.sum(np.max([cons_ineq_val, np.zeros(self.m)], axis=0))
         cons_vio += np.linalg.norm(cons_eq_val)
         obj_err = abs(fun_val - self.opt_val)
         # obj_err = fun_val - self.opt_val
@@ -415,7 +416,7 @@ class UDC:
                 ) / (self.alpha + 1 / self.rho)
             
             self.u_nxt[i] = u_wavg[i] + (
-                np.r_[self.A[i]@self.x_nxt[i], self.t_nxt[i]] - zik) / self.rho
+                np.r_[self.A_data[i]@self.x_nxt[i], self.t_nxt[i]] - zik) / self.rho
             # z_nxt needs all u_nxt[j]
             Gi_yi_nxt = self.gi(i, self.x_nxt[i]) - self.t_nxt[i]
             self.q_nxt[i] = max(-Gi_yi_nxt, qik + Gi_yi_nxt)
