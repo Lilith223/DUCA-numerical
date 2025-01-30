@@ -109,11 +109,8 @@ class UDC:
         self.alpha = alpha
         self.rho = rho
 
-        if param_setting == 'proximal_tracking':
-            print(f'UDC setting: {param_setting}')
-            self.name += '_pt'
-            self.A_weight, self.A_half, self.H1, self.H2, self.H2_half, self.D \
-                = pt_param_setting(network, rho)
+        self.A_weight, self.A_half, self.H1, self.H2, self.H2_half, self.D \
+                = self.set_weight_param(param_setting, network, rho)
         # self.W = (np.identity(prob.N) + network) * 0.5
         # self.H = (np.identity(prob.N) - network) * 0.5
         # self.W = network
@@ -498,21 +495,42 @@ class UDC:
         logging.info(f'\n')
         
     
-def pt_param_setting(W, rho):
-    '''
-    W: (N, N) doubly stochastic
-    -> A, A_half, H1, H2, H2_half, D
-    '''
-    
-    N = W.shape[0]
-    I = np.identity(N)
-    
-    A_half = sqrt(rho) * W
-    A = A_half @ A_half
-    D = rho * I
-    H1 = I - W @ W
-    H2_half = I - W
-    H2 = H2_half @ H2_half
-    
-    return A, A_half, H1, H2, H2_half, D
+    def set_weight_param(self, param_setting: str, W, rho):
+        '''
+        W: (N, N) doubly stochastic
+        -> A, A_half, H1, H2, H2_half, D
+        '''
+        print(f'UDC setting: {param_setting}')
+        
+        N = W.shape[0]
+        I = np.identity(N)
+        
+        if param_setting == 'proximal_tracking':
+            # A = \rho W^2
+            # H = I - W^2
+            # \tilde{H} = (I-W)^2
+            # D = \rho I
+            self.name += '_pt'
+            A_half = sqrt(rho) * W
+            A = A_half @ A_half
+            D = rho * I
+            H1 = I - W @ W
+            H2_half = I - W
+            H2 = H2_half @ H2_half
+            
+        elif param_setting == 'PEXTRA':
+            # A = \rho/2 * (I+W)
+            # H = 1/2 * (I-W)
+            # \tilde{H} = 1/2 * (I-W)
+            # D = \rho I
+            self.name += '_PEXTRA'    
+            A = 0.5 * rho * (I+W)
+            A_half = scipy.linalg.sqrtm(A)
+            D = rho * I
+            H1 = 0.5 * (I-W)
+            H2 = 0.5 * (I-W)
+            H2_half = scipy.linalg.sqrtm(H2)
+        
+        
+        return A, A_half, H1, H2, H2_half, D
     
