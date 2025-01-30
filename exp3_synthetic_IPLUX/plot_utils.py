@@ -73,34 +73,28 @@ class MyFigure:
         self.add_line(label, log, style=style)
     
     def paint(self, MAX_ITER=1000, nonnegy=False):
-        fig, ax = plt.subplots(figsize=(50, 30))   
-        # plt.plot(np.loadtxt('logs/cons_val_B_DPP_C0.27.txt'), label=r'$\mathrm{B-DPP}$', linestyle='-')
+        fig = mpl.figure.Figure(figsize=(50, 30),facecolor='white')
+        ax = fig.subplots()   
+        # fig, ax = plt.subplots()   
         
         for label, line in self.label_line.items():
             if self.label_style[label] == '':
                 ax.plot(line, label=label, linestyle='--')
             else:
                 ax.plot(line, self.label_style[label], label=label, markersize=20)
-        # plt.plot(np.loadtxt('logs/cons_val_B_DPP_C1.5.txt'), label=r'$\mathrm{B-DPP}$', linestyle='--')
-        # plt.plot(np.loadtxt('logs/cons_val_C_SP_SG.txt'), label=r'$\mathrm{C-SP-SG\ [13]}$', linestyle='--')
-        # plt.plot(np.loadtxt('logs/cons_val_DPD_TV.txt'), label=r'$\mathrm{DPD-TV\ [17]}$', linestyle='--')
-        # plt.plot(np.loadtxt('logs/cons_val_Falsone.txt'), label=r'$\mathrm{Dual\ Subgradient\ [11]}$', linestyle='--')
+
         plt.axhline(y=0, color='black', linestyle='--', linewidth=1)  # add horizontal line at y=0
         ax.set_xlim(0, MAX_ITER)
         # ax.set_ylim(1e-4, 5e0)
-        # if nonnegy:
-        #     plt.ylim(bottom=0)
         ax.set_yscale(self.yscale)
         
         from matplotlib.ticker import AutoMinorLocator, MultipleLocator
         from matplotlib import ticker
-        # ax.yaxis.set_major_formatter(ticker.StrMethodFormatter("{x:.2e}"))
-        # ax.yaxis.set_minor_formatter(ticker.StrMethodFormatter("{x:.2e}"))
         ax.yaxis.set_major_locator(ticker.LogLocator(base=10, numticks=15))
         
         ax.legend(fontsize=40)
         ax.set_xlabel(self.xlabel, fontsize=45)
         ax.set_ylabel(self.ylabel, fontsize=45)
         ax.grid(True)
-        fig.savefig(f'{self.filename}.png', bbox_inches='tight')
+        fig.savefig(f'{self.filename}.png', bbox_inches='tight', transparent=False)
         plt.close()

@@ -149,6 +149,12 @@ class Synthetic:
             self.x_star = np.load(f'{self.save_dir}/x_star.npy')
             self.opt_val = np.load(f'{self.save_dir}/opt_val.npy')[0]
             
+            # reset parameters
+            self.N = self.Q.shape[0]
+            self.d = self.Q.shape[1]
+            self.m = 1
+            self.p = self.A.shape[1]
+            
             print("problem loaded:")
             logging.info(f'Q: {self.Q.shape}, P: {self.P.shape}')
             logging.info(f'A: {self.A.shape}')

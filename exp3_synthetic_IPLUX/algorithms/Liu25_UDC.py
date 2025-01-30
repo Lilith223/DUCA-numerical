@@ -1,8 +1,9 @@
 import numpy as np
 import cvxpy as cp
-from math import log
+from math import log, sqrt
 from time import time
 import os
+import scipy.linalg
 
 # Set up the logger to print info messages for understandability.
 import logging
@@ -22,7 +23,8 @@ class UDC:
         
     algorithm parameters:
         alpha (for UDC_prox)
-        A, H1, H2, H2_half, D: (N, N) weight matrices. H1 for H, H2 for H tiled
+        A, A_half, H1, H2, H2_half, D: (N, N) weight matrices. 
+            H1 for H, H2 for H tilde
     '''
     
     name = "UDC"
@@ -49,6 +51,7 @@ class UDC:
             problem data:
                 Q shape: (N, d)
                 P shape: (N, d, d)
+                P_sqrt shape: (N, d, d)
                 A_data shape: (N, p, d)
                 a shape: (N, d)
                 c shape: (N, )
@@ -60,6 +63,7 @@ class UDC:
                 alpha (positve for UDC_prox, 0 for UDC)
                 A_weight, H1, H2, H2_half, D: (N, N) weight matrices. 
                     A: P_A
+                    A_half: {P_A}^{1/2}
                     H1: P_H
                     H2: P_{\tilde{H}}
                     H2_half: P_{\tilde{H}}^{1/2}
@@ -92,6 +96,9 @@ class UDC:
         
         self.Q = prob.Q 
         self.P = prob.P 
+        self.P_sqrt = np.zeros(self.P.shape)
+        for i in range(self.N):
+            self.P_sqrt[i] = scipy.linalg.sqrtm(self.P[i])
         self.A_data = prob.A 
         # print(prob.A.shape)
         self.a = prob.a 
@@ -105,8 +112,8 @@ class UDC:
         if param_setting == 'proximal_tracking':
             print(f'UDC setting: {param_setting}')
             self.name += '_pt'
-            self.A_weight, self.H1, self.H2, self.H2_half, self.D = \
-                pt_param_setting(network, rho)
+            self.A_weight, self.A_half, self.H1, self.H2, self.H2_half, self.D \
+                = pt_param_setting(network, rho)
         # self.W = (np.identity(prob.N) + network) * 0.5
         # self.H = (np.identity(prob.N) - network) * 0.5
         # self.W = network
@@ -141,7 +148,7 @@ class UDC:
         x_dis_avg_log = []
         '''
         
-        print('reset')
+        logging.info('reset')
         
         self.iter_num = 0
         self.init_time = time()
@@ -156,6 +163,7 @@ class UDC:
         
         self.x_avg = self.x_cur.copy() # for running average
         
+        self.x_nxt = np.zeros((self.N, self.d))
         self.y_mu_nxt = np.zeros((self.N, self.m))
         self.y_lam_nxt = np.zeros((self.N, self.p))
         self.z_mu_nxt = np.zeros((self.N, self.m))
@@ -212,79 +220,76 @@ class UDC:
 
     def _set_argmin_prob(self):
         '''
-        var_xi: (d, )
+        self.var_xi = cp.Variable(self.d)
 
-        self.param_PxQ = cp.Parameter(self.d) # P_i^T x_i^k + Q_i
-        self.param_xik = cp.Parameter(self.d) # x_i^k
-        self.param_Ai = cp.Parameter((self.m, self.d))
-        # A_i^T (\sum_j w_{ij}(u_x^k)_j - 1/\rho(z_x^k)_i)
-        self.param_Awuz = cp.Parameter(self.d) 
-        self.param_qGy = cp.Parameter(self.p, nonneg=True) # (q_i^k + G_i(y_i^k))
-        self.param_qGyaa = cp.Parameter(self.d) # (q_i^k + G_i(y_i^k)) * a_i'
+        # (P_i * (P_D)_i)^{1/2}
+        self.param_DiPi_sqrt = cp.Parameter((self.d, self.d)) 
+        self.param_DiQi = cp.Parameter(self.d) # Q_i * (P_D)_i
+        self.param_Di = cp.Parameter(1, nonneg=True) # (P_D)_i
+        self.param_Di_sqrt = cp.Parameter(1, nonneg=True) # ((P_D)_i)^{1/2}
+        self.param_xik_sqrt_Di = cp.Parameter(self.d) # x_i^k * ((P_D)_i)^{1/2}
+        
+        # \sum_j A_{ij}(y_\mu^k)_j - \sum_j (\tilde{H}^{1/2})_{ij}(z_\mu^k)_j
+        self.param_AyHz_mu = cp.Parameter(self.m) 
+        # \sum_j A_{ij}(y_\lam^k)_j - \sum_j (\tilde{H}^{1/2})_{ij}(z_\lam^k)_j
+        self.param_AyHz_lam = cp.Parameter(self.p)
+        
         self.param_aai = cp.Parameter(self.d)
+        self.param_cci = cp.Parameter(1)
         self.param_ai = cp.Parameter(self.d)
         self.param_ci = cp.Parameter(1)
+        self.param_Ai = cp.Parameter((self.p, self.d))
         '''
         
         self.var_xi = cp.Variable(self.d)
 
-        self.param_Pi_sqrt = cp.Parameter((self.d, self.d)) # P_i^{1/2}
-        self.param_Qi = cp.Parameter(self.d) # Q_i
-        self.param_xik = cp.Parameter(self.d) # x_i^k
-        self.param_aai = cp.Parameter(self.d)
-        self.param_cci = cp.Parameter(1)
-        
+        # (P_D)_i^{1/2} * (P_i)^{1/2} 
+        self.param_DiPi_sqrt = cp.Parameter((self.d, self.d)) 
+        self.param_DiQi = cp.Parameter(self.d) # Q_i * (P_D)_i
+        self.param_Di = cp.Parameter(1, nonneg=True) # (P_D)_i
+        self.param_Di_sqrt = cp.Parameter(1, nonneg=True) # ((P_D)_i)^{1/2}
+        self.param_xik_sqrt_Di = cp.Parameter(self.d) # x_i^k * ((P_D)_i)^{1/2}
         
         # \sum_j A_{ij}(y_\mu^k)_j - \sum_j (\tilde{H}^{1/2})_{ij}(z_\mu^k)_j
         self.param_AyHz_mu = cp.Parameter(self.m) 
-        self.param_Ai = cp.Parameter((self.m, self.d))
-        # self.param_ATA = cp.Parameter((self.d, self.d), PSD=True) # A_i^T A_i
+        # \sum_j A_{ij}(y_\lam^k)_j - \sum_j (\tilde{H}^{1/2})_{ij}(z_\lam^k)_j
+        self.param_AyHz_lam = cp.Parameter(self.p)
         
-        # A_i^T (\sum_j w_{ij}(u_x^k)_j - 1/\rho(z_x^k)_i)
-        self.param_Awuz = cp.Parameter(self.d) 
-        # q_i^k + G_i(y_i^k)
-        self.param_qGy = cp.Parameter(self.p, nonneg=True) 
-        # (q_i^k + G_i(y_i^k)) * a_i'
-        self.param_qGyaa = cp.Parameter(self.d) 
+        self.param_aai = cp.Parameter(self.d)
+        self.param_cci = cp.Parameter(1)
         self.param_ai = cp.Parameter(self.d)
         self.param_ci = cp.Parameter(1)
+        self.param_Ai = cp.Parameter((self.p, self.d))
         
-        # obj = x_i^k^T P_i x_i^k +　Q_i^T x_i + ||x_i||_1 
-        #       + \alpha/2 * ||x_i-x_i^k||^2
+        # set objective
+        
+        # obj = (x_i^k^T P_i x_i^k +　Q_i^T x_i + ||x_i||_1) * (P_D)_i 
+        #       + 0.5 * \alpha * ||x_i-x_i^k||^2 * (P_D)_i
         #       + ||[ \sum_j A_{ij}(y_\mu^k)_j 
         #            -\sum_j (\tilde{H}^{1/2})_{ij}(z_\mu^k)_j 
-        #            +||x_i - aa_i||^2-cc_i ]_+||^2/(2*(P_D)_i)
+        #            +||x_i - aa_i||^2-cc_i ]_+||^2/(2)
         #       + ||  \sum_j A_{ij}(y_\lam^k)_j 
         #            -\sum_j (\tilde{H}^{1/2})_{ij}(z_\lam^k)_j 
-        #            +A_i x_i ||^2/(2*(P_D)_i)
+        #            +A_i x_i ||^2/(2)
         
-        # quad_form(x, para) is not DPP
-        # obj += (0.5 / self.rho) * \
-        #         cp.quad_form(self.var_xi, self.param_ATA)
-        # sum_squares(para) is OK
-        
-        # obj += self.param_qGy[0] * \
-        #         cp.quad_form(self.var_xi-self.param_aai, np.identity(self.d))
-        # above is not DPP, since DPP forbits para * para
-        
-        
+        # f part and proximal term
         obj = 0.0
-        obj += cp.sum_squares(self.param_Pi_sqrt@self.var_xi)
-        obj += self.param_Qi.T @ self.var_xi 
-        obj += cp.norm(self.var_xi, 1)
-        obj += self.alpha * 0.5 * \
-                cp.quad_form(self.var_xi-self.param_xik, np.identity(self.d))
-                
-        gixi = cp.sum_squares(self.var_xi-self.param_aai)-self.param_cci
-        obj += cp.sum_squares(cp.pos(self.param_AyHz_mu+gixi))
-        # obj += cp.sum_squares(self.param_AyHz_mu + gixi)
+        obj += cp.sum_squares(self.param_DiPi_sqrt @ self.var_xi)
+        obj += self.param_DiQi.T @ self.var_xi 
+        obj += self.param_Di[0] * cp.norm(self.var_xi, 1)
+        obj += self.alpha * 0.5 * cp.sum_squares(
+            self.param_Di_sqrt[0] * self.var_xi - self.param_xik_sqrt_Di)
+                        
+        # g part
+        gixi = cp.sum_squares(self.var_xi-self.param_aai) - self.param_cci
+        obj += 0.5*cp.sum_squares(cp.pos(self.param_AyHz_mu + gixi))
         
-        # obj += (0.5 / self.rho) * cp.sum_squares(self.param_Ai @ self.var_xi)
-        # obj += self.param_Awuz.T @ self.var_xi
+        # h part
+        obj += 0.5*cp.sum_squares(self.param_AyHz_lam 
+                                  + self.param_Ai@self.var_xi)
         
-        # obj += self.param_qGy[0] * cp.quad_form(self.var_xi, np.identity(self.d))
-        # obj += -2 * self.param_qGyaa.T @ self.var_xi
 
+        # set constraint
         cons = [
             cp.quad_form(self.var_xi-self.param_ai, np.identity(self.d)) \
                 <= self.param_ci[0]
@@ -294,40 +299,57 @@ class UDC:
         logging.info(f'self.prob {self.prob}')
         assert self.prob.is_dcp(dpp=True)
 
-    def _solve_argmin_prob(self, i, xik, tik, wuik, zik, qik):
+    def _solve_argmin_prob(self, i, xik, AyHz_mu_k, AyHz_lam_k):
         '''
         i: agent number
-        xik: x_i^k (d, )
-        tik: t_i^k (p, )
-        wuik: \sum_j w_{ij}(u_x^k)_j (m+p, )
-        zik: z_i^k (m+p, )
+        
+        xik: (d, )
+        
+        AyHz_mu_k: (m, ), 
+        \sum_j A_{ij}(y_\mu^k)_j - \sum_j (\tilde{H}^{1/2})_{ij}(z_\mu^k)_j
+        
+        AyHz_lam_k: (p, ),
+        \sum_j A_{ij}(y_\lam^k)_j - \sum_j (\tilde{H}^{1/2})_{ij}(z_\lam^k)_j
         
         -> x_^{k+1}: (d, )
         '''
         
-        # NEED TO SET:
-        # self.param_PxQ = cp.Parameter(self.d) # 2*P_i^T x_i^k + Q_i
-        # self.param_xik = cp.Parameter(self.d) # x_i^k
-        # self.param_Ai = cp.Parameter((self.m, self.d))
-        # # A_i^T (\sum_j w_{ij}(u_x^k)_j - 1/\rho(z_x^k)_i)
-        # self.param_Awuz = cp.Parameter(self.d) 
-        # self.param_qGy = cp.Parameter(self.p, nonneg=True) # (q_i^k + G_i(y_i^k))
-        # self.param_qGyaa = cp.Parameter(self.d) # (q_i^k + G_i(y_i^k)) * a_i'
-        # self.param_aai = cp.Parameter(self.d)
-        # self.param_ai = cp.Parameter(self.d)
-        # self.param_ci = cp.Parameter(1)
+        '''
+        NEED TO SET:
         
-        m = self.m
-        self.param_PxQ.value = 2*self.P[i].T@xik + self.Q[i]
-        self.param_xik.value = xik
-        self.param_Ai.value = self.A_data[i]
-        self.param_Awuz.value = self.A_data[i].T @ (wuik[:m] - zik[:m]/self.rho)
-        qGy = qik + self.gi(i, xik) - tik
-        self.param_qGy.value = qGy # shape (p, ) = (1, )
-        self.param_qGyaa.value = qGy[0] * self.aa[i] 
+        self.param_Di = cp.Parameter(1, nonneg=True) # (P_D)_i
+        self.param_Di_sqrt = cp.Parameter(1, nonneg=True) # ((P_D)_i)^{1/2}
+        # (P_i * (P_D)_i)^{1/2}
+        self.param_DiPi_sqrt = cp.Parameter((self.d, self.d)) 
+        self.param_DiQi = cp.Parameter(self.d) # Q_i * (P_D)_i
+        self.param_xik_sqrt_Di = cp.Parameter(self.d) # x_i^k * ((P_D)_i)^{1/2}
+        
+        # \sum_j A_{ij}(y_\mu^k)_j - \sum_j (\tilde{H}^{1/2})_{ij}(z_\mu^k)_j
+        self.param_AyHz_mu = cp.Parameter(self.m) 
+        # \sum_j A_{ij}(y_\lam^k)_j - \sum_j (\tilde{H}^{1/2})_{ij}(z_\lam^k)_j
+        self.param_AyHz_lam = cp.Parameter(self.p)
+        
+        self.param_aai = cp.Parameter(self.d)
+        self.param_cci = cp.Parameter(1)
+        self.param_ai = cp.Parameter(self.d)
+        self.param_ci = cp.Parameter(1)
+        self.param_Ai = cp.Parameter((self.p, self.d))
+        '''
+        
+        Di = self.D[i, i]
+        self.param_Di.value = [Di]
+        self.param_Di_sqrt.value = [sqrt(Di)]
+        self.param_DiPi_sqrt.value = sqrt(Di) * self.P_sqrt[i]
+        self.param_DiQi.value = Di * self.Q[i]
+        self.param_xik_sqrt_Di.value = xik * sqrt(Di)
+        self.param_AyHz_mu.value = AyHz_mu_k
+        self.param_AyHz_lam.value = AyHz_lam_k
+        
         self.param_aai.value = self.aa[i]
+        self.param_cci.value = [self.cc[i]]
         self.param_ai.value = self.a[i]
         self.param_ci.value = [self.c[i]]
+        self.param_Ai.value = self.A_data[i]
         
         if self.verbose:
             print()
@@ -354,6 +376,11 @@ class UDC:
         ''' i: int, xi: (d, ) -> (m, )'''
         res = np.zeros(self.m)
         res[0] = (xi-self.aa[i]).T @ (xi-self.aa[i]) - self.cc[i]
+        return res
+    
+    def hi(self, i, xi):
+        ''' i: int, xi: (d, ) -> (p, )'''
+        res = self.A_data[i] @ xi
         return res
     
     def local_set_violation(self, i, xi):
@@ -388,54 +415,62 @@ class UDC:
         return obj_err, cons_vio
 
     def step(self):
-        self.iter_num += 1
+        self.iter_num += 1  # equal to k+1 in this step
         
-        # weighted average of u by W
-        u_wavg = np.zeros((self.N, (self.m+self.p))) 
+        # weighted averages
+        
+        # AyHz_mu_k: (m, ), 
+        # \sum_j A_{ij}(y_\mu^k)_j - \sum_j (\tilde{H}^{1/2})_{ij}(z_\mu^k)_j
+        
+        # AyHz_lam_k: (p, ),
+        # \sum_j A_{ij}(y_\lam^k)_j - \sum_j (\tilde{H}^{1/2})_{ij}(z_\lam^k)_j
+        
+        AyHz_mu_k = np.zeros((self.N, self.m))
+        AyHz_lam_k = np.zeros((self.N, self.p))
         for i in range(self.N):
-            u_wavg[i] = self.u_cur.T @ self.W[i]
-            #   (6,)  =     (6,3)   @ (3,) 
+            #   (m, )    =     (m, N)      @ (N, ) 
+            AyHz_mu_k[i] = self.y_mu_cur.T @ self.A_weight[i] \
+                - self.z_mu_cur.T @ self.H2_half[i]
+            AyHz_lam_k[i] = self.y_lam_cur.T @ self.A_weight[i] \
+                - self.z_lam_cur.T @ self.H2_half[i]
         # print(f'u_wavg {u_wavg}')
         
         for i in range(self.N):
             xik = self.x_cur[i]
-            tik = self.t_cur[i]
-            zik = self.z_cur[i]
-            qik = self.q_cur[i]
-            Gi_yik = self.gi(i, xik) - tik
-            # print(f'Gi_yik {Gi_yik}')
-            m = self.m
+            Di = self.D[i, i]
             
-            # updates
+            # update of x_nxt
             self.x_nxt[i] = self._solve_argmin_prob(i, xik, 
-                                                    tik, u_wavg[i], zik, qik)
-            self.t_nxt[i] = (
-                self.alpha * tik 
-                + zik[m:] / self.rho - u_wavg[i,m:]
-                + qik + Gi_yik 
-                ) / (self.alpha + 1 / self.rho)
+                                    AyHz_mu_k[i], AyHz_lam_k[i])
             
-            self.u_nxt[i] = u_wavg[i] + (
-                np.r_[self.A_data[i]@self.x_nxt[i], self.t_nxt[i]] - zik) / self.rho
-            # z_nxt needs all u_nxt[j]
-            Gi_yi_nxt = self.gi(i, self.x_nxt[i]) - self.t_nxt[i]
-            self.q_nxt[i] = max(-Gi_yi_nxt, qik + Gi_yi_nxt)
-            
-        # z_nxt needs all u_nxt[j]
-        u_havg = np.zeros((self.N, (self.m+self.p))) 
+            # update of y_nxt
+            self.y_mu_nxt[i] = np.max(
+                np.c_[AyHz_mu_k[i] + self.gi(i, self.x_nxt[i]), 
+                      np.zeros(self.m)], 
+                axis=1) / Di
+            self.y_lam_nxt[i] = (AyHz_lam_k[i] + self.hi(i, self.x_nxt[i])) / Di
+
+        # update of z_nxt needs all y_nxt[j]
+        # \sum_j (\tilde{H}^{1/2})_{ij}(y_\mu^{k+1})_j
+        Hy_mu_nxt = np.zeros((self.N, self.m))
+        # \sum_j (\tilde{H}^{1/2})_{ij}(y_\lam^{k+1})_j
+        Hy_lam_nxt = np.zeros((self.N, self.p))
         for i in range(self.N):
-            u_havg[i] = self.u_nxt.T @ self.H[i]
-        self.z_nxt = self.z_cur + self.rho * u_havg
+            #   (m, )    =     (m, N)      @ (N, ) 
+            Hy_mu_nxt[i] = self.y_mu_nxt.T @ self.H2_half[i]
+            Hy_lam_nxt[i] = self.y_lam_nxt.T @ self.H2_half[i]
+        self.z_mu_nxt = self.z_mu_cur + self.rho * Hy_mu_nxt
+        self.z_lam_nxt = self.z_lam_cur + self.rho * Hy_lam_nxt
         
         # logging.info(f'dx {self.x_nxt-self.x_cur}, dt {self.t_nxt-self.t_cur}, du {self.u_nxt-self.u_cur}, dz {self.z_nxt-self.z_cur}, dq {self.q_nxt-self.q_cur}')
         
         self.x_cur = self.x_nxt.copy()
-        self.t_cur = self.t_nxt.copy()
-        self.u_cur = self.u_nxt.copy()
-        self.z_cur = self.z_nxt.copy()
-        self.q_cur = self.q_nxt.copy()
+        self.y_mu_cur = self.y_mu_nxt.copy()
+        self.y_lam_cur = self.y_lam_nxt.copy()
+        self.z_mu_cur = self.z_mu_nxt.copy()
+        self.z_lam_cur = self.z_lam_nxt.copy()
         
-        self.x_avg = (self.x_avg * self.iter_num + self.x_cur) / (self.iter_num + 1)
+        self.x_avg = (self.x_avg*self.iter_num + self.x_cur) / (self.iter_num+1)
         self.make_log()
         
         if self.verbose:
@@ -466,17 +501,18 @@ class UDC:
 def pt_param_setting(W, rho):
     '''
     W: (N, N) doubly stochastic
-    -> A, H1, H2, H2_half, D
+    -> A, A_half, H1, H2, H2_half, D
     '''
     
     N = W.shape[0]
     I = np.identity(N)
     
-    A = rho * W @ W
+    A_half = sqrt(rho) * W
+    A = A_half @ A_half
     D = rho * I
     H1 = I - W @ W
     H2_half = I - W
     H2 = H2_half @ H2_half
     
-    return A, H1, H2, H2_half, D
+    return A, A_half, H1, H2, H2_half, D
     
