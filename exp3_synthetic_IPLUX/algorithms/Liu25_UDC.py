@@ -530,6 +530,27 @@ class UDC:
             H1 = 0.5 * (I-W)
             H2 = 0.5 * (I-W)
             H2_half = scipy.linalg.sqrtm(H2)
+            
+        elif param_setting == 'DistADMM':
+            # L = I-W
+            # H = \tilde{H} = L^2
+            # di = sum_j L_{ij}^2 * (deg_j+1)
+            # D = rho * diag(di)
+            # A = D - rho*H
+            self.name += '_DistADMM'
+            L = I - W
+            H1 = L @ L
+            H2 = L @ L
+            H2_half = L
+            
+            deg = np.count_nonzero(W, axis=1) # degrees + 1
+            diag = np.zeros(N)
+            for i in range(N):
+                diag[i] = np.inner(L[i], deg*L[i])
+            D = rho * np.diag(diag)
+            
+            A = D - rho*H1
+            A_half = scipy.linalg.sqrtm(A)
         
         
         return A, A_half, H1, H2, H2_half, D
