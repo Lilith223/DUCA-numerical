@@ -54,7 +54,7 @@ plt.rcParams['text.usetex'] = True
 class MyFigure:
     '''One figure contains several lines.'''
     
-    def __init__(self, filename, xlabel, ylabel, yscale):
+    def __init__(self, filename, xlabel, ylabel, yscale='log'):
         '''yscale: "log", "symlog", "linear" '''
         self.filename = filename
         self.xlabel = xlabel
@@ -71,6 +71,10 @@ class MyFigure:
     def add_line_file(self, label:str, file:str, style=''):
         log = np.loadtxt(file)
         self.add_line(label, log, style=style)
+    
+    def clear(self):
+        self.label_line = dict()
+        self.label_style = dict()
     
     def paint(self, MAX_ITER=1000, nonnegy=False):
         fig = mpl.figure.Figure(figsize=(50, 30),facecolor='white')
