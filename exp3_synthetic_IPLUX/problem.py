@@ -124,7 +124,7 @@ class Synthetic:
         assert(self.prob.is_dcp())
         
         # self.prob.solve(solver='MOSEK', verbose=True)
-        self.prob.solve(solver='MOSEK')
+        self.prob.solve()
         self.x_star = var_x.value
         self.opt_val = self.prob.value
         
@@ -173,11 +173,11 @@ class Synthetic:
         '''
         for i in range(self.N):
             Q,R = np.linalg.qr(np.random.rand(self.d,self.d))
-            diag_elem = np.random.rand(self.d)
-            diag_elem[-1] = 1e-15 
+            diag_elem = np.random.rand(self.d) + 0.1
+            # diag_elem[-1] = 0.1 
             self.P[i] = Q.T@np.diag(diag_elem)@Q
             # logging.info(f"check semipositivity of P{i}: {min(np.linalg.eigvals(self.P[i]))}")
-            self.Q[i] = np.random.rand(self.d)*3
+            self.Q[i] = np.random.rand(self.d)*3 + 0.1
 
         logging.info(f'Q: {self.Q.shape}, P: {self.P.shape}')
         

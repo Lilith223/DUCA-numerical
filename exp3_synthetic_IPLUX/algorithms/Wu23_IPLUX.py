@@ -14,7 +14,7 @@ class IPLUX:
     problem data:
         Q shape: (N, d)
         P shape: (N, d, d)
-        A shape: (N, m, d)
+        A shape: (N, p, d)
         a shape: (N, d)
         c shape: (N, )
         aa shape: (N, d)
@@ -50,7 +50,7 @@ class IPLUX:
         problem data:
         Q shape: (N, d)
         P shape: (N, d, d)
-        A shape: (N, m, d)
+        A shape: (N, p, d)
         a shape: (N, d)
         c shape: (N, )
         aa shape: (N, d)
@@ -67,10 +67,10 @@ class IPLUX:
         self.init_time = time()
         
         x_cur, x_nxt, x_avg: (N, d)
-        t_cur, t_nxt: (N, p)
+        t_cur, t_nxt: (N, m)
         u_cur, u_nxt: (N, m+p)
         z_cur, z_nxt: (N, m+p)
-        q_cur, q_nxt: (N, p)
+        q_cur, q_nxt: (N, m)
         
         no_ineq: if True, then there is no inequality
         verbose: displays information
@@ -88,7 +88,7 @@ class IPLUX:
         
         self.Q = prob.Q 
         self.P = prob.P 
-        self.A = prob.A 
+        self.A_data = prob.A
         # print(prob.A.shape)
         self.a = prob.a 
         self.c = prob.c 
@@ -117,10 +117,10 @@ class IPLUX:
         
         decision vars:
         x_cur, x_nxt, x_avg: (N, d)
-        t_cur, t_nxt: (N, p)
+        t_cur, t_nxt: (N, m)
         u_cur, u_nxt: (N, m+p)
         z_cur, z_nxt: (N, m+p)
-        q_cur, q_nxt: (N, p)
+        q_cur, q_nxt: (N, m)
         
         log lists:
         obj_err_log = []
@@ -139,22 +139,22 @@ class IPLUX:
         # initial conditions
         self.x_cur = np.zeros((self.N, self.d))
         # self.x_cur = self.x_star.copy()
-        self.t_cur = np.zeros((self.N, self.p))
+        self.t_cur = np.zeros((self.N, self.m))
         self.u_cur = np.zeros((self.N, (self.m+self.p)))
         self.z_cur = np.zeros((self.N, (self.m+self.p)))
-        self.q_cur = np.zeros((self.N, self.p))
+        self.q_cur = np.zeros((self.N, self.m))
         
         self.x_avg = self.x_cur.copy() # for running average
         
         self.x_nxt = np.zeros((self.N, self.d))
-        self.t_nxt = np.zeros((self.N, self.p))
+        self.t_nxt = np.zeros((self.N, self.m))
         self.u_nxt = np.zeros((self.N, (self.m+self.p)))
         self.z_nxt = np.zeros((self.N, (self.m+self.p)))
-        self.q_nxt = np.zeros((self.N, self.p))
+        self.q_nxt = np.zeros((self.N, self.m))
         
         for i in range(self.N):
             Gi_yi0 = self.gi(i, self.x_cur[i]) - self.t_cur[i]
-            self.q_cur[i] = np.max([np.zeros(self.p), -Gi_yi0], axis=0)
+            self.q_cur[i] = np.max([np.zeros(self.m), -Gi_yi0], axis=0)
         
         # reset logs
         self.obj_err_log = []
@@ -224,13 +224,13 @@ class IPLUX:
 
         self.param_PxQ = cp.Parameter(self.d) # 2*P_i^T x_i^k + Q_i
         self.param_xik = cp.Parameter(self.d) # x_i^k
-        self.param_Ai = cp.Parameter((self.m, self.d))
+        self.param_Ai = cp.Parameter((self.p, self.d))
         # self.param_ATA = cp.Parameter((self.d, self.d), PSD=True) # A_i^T A_i
         
         # A_i^T (\sum_j w_{ij}(u_x^k)_j - 1/\rho(z_x^k)_i)
         self.param_Awuz = cp.Parameter(self.d) 
         # q_i^k + G_i(y_i^k)
-        self.param_qGy = cp.Parameter(self.p, nonneg=True) 
+        self.param_qGy = cp.Parameter(self.m, nonneg=True) 
         # (q_i^k + G_i(y_i^k)) * a_i'
         self.param_qGyaa = cp.Parameter(self.d) 
         self.param_aai = cp.Parameter(self.d)
@@ -277,7 +277,7 @@ class IPLUX:
         '''
         i: agent number
         xik: x_i^k (d, )
-        tik: t_i^k (p, )
+        tik: t_i^k (m, )
         wuik: \sum_j w_{ij}(u_x^k)_j (m+p, )
         zik: z_i^k (m+p, )
         
@@ -296,11 +296,11 @@ class IPLUX:
         # self.param_ai = cp.Parameter(self.d)
         # self.param_ci = cp.Parameter(1)
         
-        m = self.m
+        p = self.p
         self.param_PxQ.value = 2*self.P[i].T@xik + self.Q[i]
         self.param_xik.value = xik
-        self.param_Ai.value = self.A[i]
-        self.param_Awuz.value = self.A[i].T @ (wuik[:m] - zik[:m]/self.rho)
+        self.param_Ai.value = self.A_data[i]
+        self.param_Awuz.value = self.A_data[i].T @ (wuik[:p] - zik[:p]/self.rho)
         qGy = qik + self.gi(i, xik) - tik
         self.param_qGy.value = qGy # shape (p, ) = (1, )
         self.param_qGyaa.value = qGy[0] * self.aa[i] 
@@ -320,8 +320,10 @@ class IPLUX:
             print(f'param_ai.value {self.param_ai.value}')
             print(f'param_ci.value {self.param_ci.value}')
         
-        self.prob.solve(solver='MOSEK')
-        # self.prob.solve()
+        # self.prob.solve(solver='MOSEK')
+        # self.prob.solve(solver='CPLEX', cplex_params={'simplex.tolerances.optimality':1e-7})
+        self.prob.solve(solver='ECOS', reltol=1e-11)
+        # self.prob.solve(solver='CVXOPT', reltol=1e-6)
         
         return self.var_xi.value
     
@@ -330,8 +332,8 @@ class IPLUX:
         return xi.T@self.P[i]@xi + self.Q[i].T@xi + np.linalg.norm(xi,1)
     
     def gi(self, i, xi):
-        ''' i: int, xi: (d, ) -> (p, )'''
-        res = np.zeros(self.p)
+        ''' i: int, xi: (d, ) -> (m, )'''
+        res = np.zeros(self.m)
         res[0] = (xi-self.aa[i]).T @ (xi-self.aa[i]) - self.cc[i]
         return res
     
@@ -343,8 +345,8 @@ class IPLUX:
         ''' -> obj_err: float, cons_vio: float'''
         
         fun_val = 0.
-        cons_ineq_val = np.zeros(self.p)  # inequality constraint values
-        cons_eq_val = np.zeros(self.m)  # equality constraint values
+        cons_ineq_val = np.zeros(self.m)  # inequality constraint values
+        cons_eq_val = np.zeros(self.p)  # equality constraint values
         # constraint violation, including local set violation
         cons_vio = 0.
         
@@ -355,10 +357,10 @@ class IPLUX:
         for i in range(self.N):            
             fun_val += self.fi(i, x[i])            
             cons_ineq_val += self.gi(i, x[i]) # p dimensional vector
-            cons_eq_val += self.A[i]@x[i]  # m dimensional vector                
+            cons_eq_val += self.A_data[i]@x[i]  # m dimensional vector                
             cons_vio += self.local_set_violation(i, x[i]) 
                         
-        cons_vio += np.sum(np.max([cons_ineq_val, np.zeros(self.p)], axis=0))
+        cons_vio += np.sum(np.max([cons_ineq_val, np.zeros(self.m)], axis=0))
         cons_vio += np.linalg.norm(cons_eq_val)
         obj_err = abs(fun_val - self.opt_val)
         # obj_err = fun_val - self.opt_val
@@ -382,19 +384,19 @@ class IPLUX:
             qik = self.q_cur[i]
             Gi_yik = self.gi(i, xik) - tik
             # print(f'Gi_yik {Gi_yik}')
-            m = self.m
+            p = self.p
             
             # updates
             self.x_nxt[i] = self._solve_argmin_prob(i, xik, 
                                                     tik, u_wavg[i], zik, qik)
             self.t_nxt[i] = (
                 self.alpha * tik 
-                + zik[m:] / self.rho - u_wavg[i,m:]
+                + zik[p:] / self.rho - u_wavg[i,p:]
                 + qik + Gi_yik 
                 ) / (self.alpha + 1 / self.rho)
             
             self.u_nxt[i] = u_wavg[i] + (
-                np.r_[self.A[i]@self.x_nxt[i], self.t_nxt[i]] - zik) / self.rho
+                np.r_[self.A_data[i]@self.x_nxt[i], self.t_nxt[i]] - zik) / self.rho
             # z_nxt needs all u_nxt[j]
             Gi_yi_nxt = self.gi(i, self.x_nxt[i]) - self.t_nxt[i]
             self.q_nxt[i] = max(-Gi_yi_nxt, qik + Gi_yi_nxt)

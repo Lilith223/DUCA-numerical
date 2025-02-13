@@ -1,16 +1,27 @@
 import matplotlib as mpl
 import matplotlib.pyplot as plt
 import numpy as np
-mpl.use('agg')
+from matplotlib.ticker import AutoMinorLocator, MultipleLocator, LogLocator,FormatStrFormatter
+from matplotlib import ticker
+# mpl.use('agg')
 
-font = {'size': 40}
-plt.rc('font', **font)
-plt.rcParams['figure.figsize'] = [12, 9]
-plt.rcParams['lines.linewidth'] = 4
+# plt.rc('font', **{'family': 'serif', 'serif': ['Computer Modern'], 'size': 40})
+plt.rc('text', usetex=True)
 
-mpl.rcParams['pdf.fonttype'] = 42
-mpl.rcParams['ps.fonttype'] = 42
-plt.rcParams['text.usetex'] = True
+# plt.rcParams['figure.figsize'] = [12, 9]
+plt.rcParams['figure.figsize'] = [16, 12]
+# plt.rcParams['lines.linewidth'] = 4
+
+# mpl.rcParams['pdf.fonttype'] = 42
+# mpl.rcParams['ps.fonttype'] = 42
+mpl.rcParams['xtick.labelsize'] = 40
+mpl.rcParams['ytick.labelsize'] = 40
+mpl.rcParams['ytick.minor.visible'] = True
+mpl.rcParams['ytick.minor.width'] = 3
+
+
+mpl.rcParams['text.latex.preamble'] = r'\usepackage{amssymb}'
+mpl.rcParams["legend.loc"] = 'upper right'
 
 ################################# diff C #####################################
 # plt.figure()
@@ -77,24 +88,36 @@ class MyFigure:
         self.label_style = dict()
     
     def paint(self, MAX_ITER=1000, nonnegy=False):
-        fig = mpl.figure.Figure(figsize=(50, 30),facecolor='white')
+        fig = mpl.figure.Figure(facecolor='white')
         ax = fig.subplots()   
-        # fig, ax = plt.subplots()   
-        
-        for label, line in self.label_line.items():
-            if self.label_style[label] == '':
-                ax.plot(line, label=label, linestyle='--')
-            else:
-                ax.plot(line, self.label_style[label], label=label, markersize=20)
-
-        plt.axhline(y=0, color='black', linestyle='--', linewidth=1)  # add horizontal line at y=0
         ax.set_xlim(0, MAX_ITER)
         # ax.set_ylim(1e-4, 5e0)
         ax.set_yscale(self.yscale)
         
-        from matplotlib.ticker import AutoMinorLocator, MultipleLocator
-        from matplotlib import ticker
-        ax.yaxis.set_major_locator(ticker.LogLocator(base=10, numticks=15))
+        ax.minorticks_on()
+        ax.yaxis.set_major_locator(LogLocator(numticks=7))
+        ax.yaxis.set_minor_locator(LogLocator(subs='auto'))
+        # ax.yaxis.set_minor_locator(plt.LogLocator(subs=np.arange(2, 10)))
+        # ax.yaxis.set_major_locator(ticker.LogLocator(base=10, numticks=7))
+        # ax.yaxis.set_minor_locator(ticker.)
+        # plt.tick_params(axis='y', which='minor')
+        # ax.yaxis.set_minor_locator(plt.LogLocator(subs=np.arange(2, 10)))
+
+        # Customize tick appearance
+        # ax.set_yticks(plt.LogLocator(subs=np.arange(2, 10)), minor=True)
+        
+        # ax.tick_params(which='both', width=2)
+        # ax.tick_params(which='major', length=7)
+        # ax.tick_params(which='minor', length=4, color='r')
+        
+        
+        for label, line in self.label_line.items():
+            if self.label_style[label] == '':
+                ax.plot(line, label=label, linestyle='--', linewidth=3)
+            else:
+                ax.plot(line, self.label_style[label], label=label, linewidth=3)        
+        
+        
         
         ax.legend(fontsize=40)
         ax.set_xlabel(self.xlabel, fontsize=45)
