@@ -111,12 +111,10 @@ class UDC:
         self.rho = rho
         self.theta = theta
 
+        # 'network' is a doubly stochastic matix, equals to I-Mg
         self.A_weight, self.A_half, self.H1, self.H2, self.H2_half, self.D \
-                = self.set_weight_param(param_setting, network, rho)
-        # self.W = (np.identity(prob.N) + network) * 0.5
-        # self.H = (np.identity(prob.N) - network) * 0.5
-        # self.W = network
-        # self.H = np.identity(prob.N) - network
+                = self.set_weight_param(param_setting, 
+                                        np.identity(self.N)-network, rho)
         
         self.verbose = verbose
         self.log_dir = f'log/N{self.N}'
@@ -441,7 +439,7 @@ class UDC:
             AyHz_lam_k[i] = self.y_lam_cur.T @ self.A_weight[i] \
                 - self.z_lam_cur.T @ self.H2_half[i]
         # print(f'u_wavg {u_wavg}')
-        
+                
         for i in range(self.N):
             xik = self.x_cur[i]
             Di = self.D[i, i]
@@ -466,10 +464,15 @@ class UDC:
             #   (m, )    =     (m, N)      @ (N, ) 
             Hy_mu_nxt[i] = self.y_mu_nxt.T @ self.H2_half[i]
             Hy_lam_nxt[i] = self.y_lam_nxt.T @ self.H2_half[i]
-        self.z_mu_nxt = self.z_mu_cur + self.rho * Hy_mu_nxt
-        self.z_lam_nxt = self.z_lam_cur + self.rho * Hy_lam_nxt
         
-        # logging.info(f'dx {self.x_nxt-self.x_cur}, dt {self.t_nxt-self.t_cur}, du {self.u_nxt-self.u_cur}, dz {self.z_nxt-self.z_cur}, dq {self.q_nxt-self.q_cur}')
+        if self.rho_only_in_mat: # these methods use rho=1
+            self.z_mu_nxt = self.z_mu_cur + Hy_mu_nxt
+            self.z_lam_nxt = self.z_lam_cur + Hy_lam_nxt
+        else:
+            self.z_mu_nxt = self.z_mu_cur + self.rho * Hy_mu_nxt
+            self.z_lam_nxt = self.z_lam_cur + self.rho * Hy_lam_nxt
+        
+        # logging.info(f'iter {self.iter_num}, x_nxt {self.x_nxt}, y {self.y_mu_nxt}, {self.y_lam_nxt}, z {self.z_mu_nxt, self.z_lam_nxt}')
         
         if self.theta != -1: # only for DPMM
             self.x_cur = (1-self.theta)*self.x_cur + self.theta*self.x_nxt
@@ -508,67 +511,132 @@ class UDC:
         logging.info(f'\n')
         
     
-    def set_weight_param(self, param_setting: str, W, rho):
+    def set_weight_param(self, param_setting: str, Mg, rho):
         '''
-        W: (N, N) doubly stochastic
+        Mg: (N, N) metropolis weight
         -> A, A_half, H1, H2, H2_half, D
         '''
         print(f'UDC setting: {param_setting}')
         
-        N = W.shape[0]
+        N = Mg.shape[0]
         I = np.identity(N)
-        
-        if param_setting == 'pt':
-            # A = \rho W^2
-            # H = I - W^2
-            # \tilde{H} = (I-W)^2
-            # D = \rho I
-            self.name += '_pt'
-            A_half = sqrt(rho) * W
-            A = A_half @ A_half
-            D = rho * I
-            H1 = I - W @ W
-            H2_half = I - W
-            H2 = H2_half @ H2_half
+        G = np.zeros((N, N)) # graph
+        edge_num = 0
+        for i in range(N):
+            for j in range(N):
+                if i!=j and Mg[i,j]:
+                    G[i,j] = 1
+                    edge_num += 1
+        edge_num >>= 1
+        degrees = np.sum(G, axis=1)
             
-        elif param_setting == 'PEXTRA':
-            # A = \rho/2 * (I+W)
-            # H = \tilde{H} = 1/2 * (I-W)
-            # D = \rho I
+        if param_setting == 'PEXTRA':
+            # A = \rho/2 * (I-Mg)
+            # H = \tilde{H} = 1/2 * Mg
+            # D = \rho/2 * I
+            
+            self.rho_only_in_mat = False
             self.name += '_PEXTRA'    
-            A = 0.5 * rho * (I+W)
-            A_half = scipy.linalg.sqrtm(A)
-            D = rho * I
-            H1 = 0.5 * (I-W)
-            H2 = 0.5 * (I-W)
-            H2_half = scipy.linalg.sqrtm(H2)
+            A = 0.5 * rho * (I-Mg)
+            D = 0.5 * rho * I
+            H1 = 0.5 * Mg
+            H2 = 0.5 * Mg
+            
+            A_half = np.real(scipy.linalg.sqrtm(A))
+            H2_half = np.real(scipy.linalg.sqrtm(H2))
+        
+        elif param_setting == 'PGC':
+            # A = 1/2 * (\Lambada_1 + W_1)
+            # H = \tilde{H} = 1/2 * L_1
+            # D = \Lambda_1
+            
+            self.rho_only_in_mat = True
+            self.name += '_PGC'
+
+            W = np.zeros((N, N))
+            for i in range(N):
+                for j in  range(N):
+                    if i!=j and G[i,j]:
+                        W[i,j] = 2 * rho
+            Lam = np.diag(np.sum(W, axis=1))
+            L = Lam - W
+            A = 0.5 * (Lam + W)
+            H1 = 0.5 * L
+            H2 = 0.5 * L
+            D = Lam
+            
+            A_half = np.real(scipy.linalg.sqrtm(A))
+            H2_half = np.real(scipy.linalg.sqrtm(H2))
+            
+        elif param_setting == 'DPGA':
+            # A = \diag(\gamma|N_i|) - L_2
+            # H = \tilde{H} = L_2
+            # D = \diag(\gamma|N_i|)
+            
+            self.rho_only_in_mat = True
+            self.name += '_DPGA'
+            gam = sqrt(N*rho/(edge_num*np.min(degrees)))
+            # print(f'deg {degrees}, edge_nume {edge_num}, gam {gam}')
+
+            W = np.zeros((N, N))
+            for i in range(N):
+                for j in  range(N):
+                    if i!=j and G[i,j]:
+                        W[i,j] = gam/2
+            
+            Lam = np.diag(np.sum(W, axis=1))
+            L = Lam - W
+            H1 = L
+            H2 = L
+            D = np.diag(gam * degrees)
+            A = D - L
+            
+            A_half = np.real(scipy.linalg.sqrtm(A))
+            H2_half = np.real(scipy.linalg.sqrtm(H2))
             
         elif param_setting == 'DistADMM':
-            # L = I-W
-            # H = \tilde{H} = L^2
-            # di = sum_j L_{ij}^2 * (deg_j+1)
-            # D = rho * diag(di)
+            # H = \tilde{H} = Mg^2
+            # D = rho * diag(sum_j Mg_{ij}^2 * (deg_j+1))
             # A = D - rho*H
+            self.rho_only_in_mat = False
             self.name += '_DistADMM'
-            L = I - W
-            H1 = L @ L
-            H2 = L @ L
-            H2_half = L
             
-            deg = np.count_nonzero(W, axis=1) # degrees + 1
+            H1 = Mg @ Mg
+            H2 = Mg @ Mg
+            H2_half = Mg
             diag = np.zeros(N)
             for i in range(N):
-                diag[i] = np.inner(L[i], deg*L[i])
+                diag[i] = np.inner(Mg[i], (degrees+1)*Mg[i])
             D = rho * np.diag(diag)
-            
             A = D - rho*H1
-            A_half = scipy.linalg.sqrtm(A)
+            A_half = np.real(scipy.linalg.sqrtm(A))
+        
+        elif param_setting == 'ALT':
+            # A = \rho (I-Mg)^2
+            # H = Mg(2I-Mg)
+            # \tilde{H} = Mg^2
+            # D = \rho I
+            
+            self.rho_only_in_mat = False
+            self.name = 'ALT'
+            A_half = sqrt(rho) * (I-Mg)
+            A = A_half @ A_half
+            D = rho * I
+            H1 = Mg @ (2*I - Mg)
+            H2_half = Mg
+            H2 = Mg @ Mg
         
         elif param_setting == 'DPMM':
+            self.rho_only_in_mat = False
             self.name = 'DPMM'
+            
             A, A_half, H1, H2, H2_half, D \
-                = self.set_weight_param('PEXTRA', W, rho)
+                = self.set_weight_param('PEXTRA', Mg, rho)
             self.name = self.name[:-7] # delete '_PEXTRA'
+        
+        
+        # A_half = np.real(scipy.linalg.sqrtm(A))
+        # H2_half = np.real(scipy.linalg.sqrtm(H2))
         
         return A, A_half, H1, H2, H2_half, D
     

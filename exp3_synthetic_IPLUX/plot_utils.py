@@ -9,15 +9,15 @@ from matplotlib import ticker
 plt.rc('text', usetex=True)
 
 # plt.rcParams['figure.figsize'] = [12, 9]
-plt.rcParams['figure.figsize'] = [16, 12]
+plt.rcParams['figure.figsize'] = [8, 6]
 # plt.rcParams['lines.linewidth'] = 4
 
 # mpl.rcParams['pdf.fonttype'] = 42
 # mpl.rcParams['ps.fonttype'] = 42
-mpl.rcParams['xtick.labelsize'] = 40
-mpl.rcParams['ytick.labelsize'] = 40
-mpl.rcParams['ytick.minor.visible'] = True
-mpl.rcParams['ytick.minor.width'] = 3
+# mpl.rcParams['xtick.labelsize'] = 20
+# mpl.rcParams['ytick.labelsize'] = 20
+# mpl.rcParams['ytick.minor.visible'] = True
+# mpl.rcParams['ytick.minor.width'] = 3
 
 
 mpl.rcParams['text.latex.preamble'] = r'\usepackage{amssymb}'
@@ -74,14 +74,16 @@ class MyFigure:
         
         self.label_line = dict()
         self.label_style = dict()
+        self.label_marker = dict()
     
-    def add_line(self, label:str, log:np.ndarray, style=''):
+    def add_line(self, label:str, log:np.ndarray, style='', marker=''):
         self.label_line[label] = log
         self.label_style[label] = style
+        self.label_marker[label] = marker
         
-    def add_line_file(self, label:str, file:str, style=''):
+    def add_line_file(self, label:str, file:str, style='', marker=''):
         log = np.loadtxt(file)
-        self.add_line(label, log, style=style)
+        self.add_line(label, log, style=style, marker=marker)
     
     def clear(self):
         self.label_line = dict()
@@ -113,15 +115,18 @@ class MyFigure:
         
         for label, line in self.label_line.items():
             if self.label_style[label] == '':
-                ax.plot(line, label=label, linestyle='--', linewidth=3)
+                ax.plot(line, label=label, linestyle='--', linewidth=1)
             else:
-                ax.plot(line, self.label_style[label], label=label, linewidth=3)        
+                # ax.plot(line, self.label_style[label], label=label, 
+                #         marker=self.label_marker[label], markevery=200, linewidth=1)     
+                ax.plot(line, self.label_style[label], label=label,
+                        linewidth=2)        
         
         
         
-        ax.legend(fontsize=40)
-        ax.set_xlabel(self.xlabel, fontsize=45)
-        ax.set_ylabel(self.ylabel, fontsize=45)
+        ax.legend(fontsize=20)
+        ax.set_xlabel(self.xlabel, fontsize=20)
+        ax.set_ylabel(self.ylabel, fontsize=20)
         ax.grid(True)
         fig.savefig(f'{self.filename}.png', bbox_inches='tight', transparent=False)
         plt.close()
