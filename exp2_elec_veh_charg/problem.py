@@ -48,6 +48,7 @@ class ElecVehCharg:
         print(f"generating a {self.prob_tpye} problem, N={self.N}")
         self.c = np.random.uniform(low=0., high=1., size=self.N)
         self.d = np.random.uniform(low=0., high=1., size=self.N)
+        # self.d = np.ones(self.N) * 0.5 # instance 2: identical constraints
         self.b = np.ndarray(1, dtype=np.float64)
         self.b[0] = 0.1*self.N
         
@@ -73,6 +74,8 @@ class ElecVehCharg:
         self.prob.solve(solver='ECOS', reltol=1e-9)
         self.x_star = var_x.value
         self.opt_val = self.prob.value
+        self.opt_cons_vio = self.b[0]/self.N*np.ones(self.N) \
+            - self.d * np.log1p(self.x_star)
 
         print(f'x* {self.x_star}, f* {self.opt_val}')
 

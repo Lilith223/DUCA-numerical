@@ -275,7 +275,7 @@ class UDC:
         
         # self.prob.solve(solver='MOSEK')
         # self.prob.solve(solver='CPLEX', cplex_params={'parameters.simplex.tolerances.optimality':1e-7})
-        self.prob.solve(solver='ECOS', reltol=1e-7)
+        self.prob.solve(solver='ECOS', reltol=1e-10)
         # self.prob.solve(solver='CVXOPT', reltol=1e-6)
         
         return self.var_x.value
@@ -416,8 +416,8 @@ class UDC:
             
             self.rho_only_in_mat = False
             self.name += '_PEXTRA'    
-            A = 0.5 * rho * (I-Mg)
-            D = 0.5 * rho * I
+            A = 0.5 * rho * (2*I-Mg)
+            D = rho * I
             H1 = 0.5 * Mg
             H2 = 0.5 * Mg
             

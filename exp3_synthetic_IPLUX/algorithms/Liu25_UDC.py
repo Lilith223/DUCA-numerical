@@ -537,8 +537,8 @@ class UDC:
             
             self.rho_only_in_mat = False
             self.name += '_PEXTRA'    
-            A = 0.5 * rho * (I-Mg)
-            D = 0.5 * rho * I
+            A = 0.5 * rho * (2*I-Mg)
+            D = rho * I
             H1 = 0.5 * Mg
             H2 = 0.5 * Mg
             
@@ -612,19 +612,24 @@ class UDC:
             A_half = np.real(scipy.linalg.sqrtm(A))
         
         elif param_setting == 'ALT':
-            # A = \rho (I-Mg)^2
-            # H = Mg(2I-Mg)
-            # \tilde{H} = Mg^2
+            # A = \rho W^2
+            # H = \calL (2I - \calL)
+            # \tilde{H} = \calL^2
             # D = \rho I
+            # W = I - Mg/2 (doubly stochastic, PSD)
+            # L = I - W
             
             self.rho_only_in_mat = False
             self.name = 'ALT'
-            A_half = sqrt(rho) * (I-Mg)
-            A = A_half @ A_half
+            W = I - Mg/2
+            L = I - W
+            
+            A_half = sqrt(rho) * W
+            A = rho * W @ W
             D = rho * I
-            H1 = Mg @ (2*I - Mg)
-            H2_half = Mg
-            H2 = Mg @ Mg
+            H1 = L @ (2*I - L)
+            H2_half = L
+            H2 = L @ L
         
         elif param_setting == 'DPMM':
             self.rho_only_in_mat = False
@@ -634,6 +639,93 @@ class UDC:
                 = self.set_weight_param('PEXTRA', Mg, rho)
             self.name = self.name[:-7] # delete '_PEXTRA'
         
+        elif param_setting == 'New1':
+            # H = \tilde{H} = Mg
+            # D = 2\rho * \diag(Mg)
+            # A = D - Mg
+            
+            self.rho_only_in_mat = False
+            self.name += '_New1'
+            
+            D = 2 * rho * np.diag(np.diag(Mg))
+            H1 = Mg
+            H2 = Mg
+            A = D - rho * Mg
+            
+            A_half = np.real(scipy.linalg.sqrtm(A))
+            H2_half = np.real(scipy.linalg.sqrtm(H2))
+        
+        # elif param_setting == 'New2':
+        #     # H = \tilde{H} = Mg
+        #     # D = 2\rho * \diag(Mg)
+        #     # A = D - Mg
+            
+        #     self.rho_only_in_mat = False
+        #     self.name += '_New2'
+            
+        #     D = 2 * rho * np.diag(np.diag(Mg))
+            
+        #     scale = np.zeros(N)
+        #     for i in range(N):
+        #         scale[i] = self.aa[i].T@self.aa[i] - self.cc[i]
+        #     scale = np.abs(scale / np.min(np.abs(scale)))
+            
+        #     # print(scale)
+        #     # print(D)
+        #     D = D @ np.diag(scale)
+        #     # print(D)
+            
+        #     H1 = Mg
+        #     H2 = Mg
+        #     A = D - rho * Mg
+            
+        #     A_half = np.real(scipy.linalg.sqrtm(A))
+        #     H2_half = np.real(scipy.linalg.sqrtm(H2))
+        
+        
+        # elif param_setting == 'New2':
+        #     # A = \rho W^2
+        #     # H = \calL (2\diag(Mg) - \calL)
+        #     # \tilde{H} = \calL^2
+        #     # D = \rho \diag(Mg)
+        #     # W = 0.5 \diag(Mg) (2I - Mg) (PSD, not d.s.)
+        #     # L = \diag(Mg) - W
+             
+        #     self.rho_only_in_mat = False
+        #     self.name += '_New2'
+        #     W = 0.5 * np.diag(np.diag(Mg)) @ (2*I - Mg)
+        #     L = np.diag(np.diag(Mg)) - W
+            
+        #     # A_half = sqrt(rho) * W
+        #     # A = rho * W @ W
+        #     D = rho * np.diag(np.diag(Mg)) @ np.diag(np.diag(Mg))
+        #     H1 = L @ (2*np.diag(np.diag(Mg)) - L)
+        #     H2_half = L
+        #     H2 = L @ L
+        #     A = D - rho * H1
+        #     A_half = np.real(scipy.linalg.sqrtm(A))
+        
+        elif param_setting == 'New2': # have bug
+            # A = D - \rho H
+            # H = \tilde{H} = \calL^2
+            # D = \rho \diag(Mg)^2
+            # W = 0.5 \diag(Mg) (2I - Mg) (PSD, not d.s.)
+            # L = \diag(Mg) - W
+             
+            self.rho_only_in_mat = False
+            self.name += '_New2'
+            W = 0.5 * np.diag(np.diag(Mg)) @ (2*I - Mg)
+            L = np.diag(np.diag(Mg)) - W
+            
+            # A_half = sqrt(rho) * W
+            # A = rho * W @ W
+            D = rho * np.diag(np.diag(Mg)) @ np.diag(np.diag(Mg))
+            H1 = L @ (2*np.diag(np.diag(Mg)) - L)
+            H2_half = L
+            H2 = L @ L
+            A = D - rho * H1
+            A_half = np.real(scipy.linalg.sqrtm(A))
+            
         
         # A_half = np.real(scipy.linalg.sqrtm(A))
         # H2_half = np.real(scipy.linalg.sqrtm(H2))

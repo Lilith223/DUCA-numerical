@@ -199,11 +199,19 @@ class Synthetic:
         '''
         
         for i in range(self.N):
-            self.A[i] = np.random.rand(self.p, self.d)
+            self.A[i] = np.random.rand((self.p, self.d))
             self.a[i] = np.random.rand(self.d)
             self.c[i] = np.random.rand() + self.a[i].T @ self.a[i]
             self.aa[i] = np.random.rand(self.d)
             self.cc[i] = np.random.rand() + self.aa[i].T @ self.aa[i]
+            
+        # for instance 3: identical constraints
+        # for i in range(self.N):
+        #     self.A[i] = np.ones((self.p, self.d))
+        #     self.a[i] = np.ones(self.d)*0.1
+        #     self.c[i] = 0.9 + self.a[i].T @ self.a[i]
+        #     self.aa[i] = np.ones(self.d)*0.1
+        #     self.cc[i] = 0.9 + self.aa[i].T @ self.aa[i]
         
         logging.info(f'A: {self.A.shape}')
         logging.info(f'a: {self.a.shape}, c: {self.c.shape}')
