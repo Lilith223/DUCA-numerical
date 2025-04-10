@@ -74,16 +74,16 @@ class MyFigure:
         
         self.label_line = dict()
         self.label_style = dict()
-        self.label_marker = dict()
+        self.label_alpha = dict()
     
-    def add_line(self, label:str, log:np.ndarray, style='', marker=''):
+    def add_line(self, label:str, log:np.ndarray, style='', alpha=1):
         self.label_line[label] = log
         self.label_style[label] = style
-        self.label_marker[label] = marker
+        self.label_alpha[label] = alpha
         
-    def add_line_file(self, label:str, file:str, style='', marker=''):
+    def add_line_file(self, label:str, file:str, style='', alpha=1):
         log = np.loadtxt(file)
-        self.add_line(label, log, style=style, marker=marker)
+        self.add_line(label, log, style=style, alpha=alpha)
     
     def clear(self):
         self.label_line = dict()
@@ -120,7 +120,7 @@ class MyFigure:
                 # ax.plot(line, self.label_style[label], label=label, 
                 #         marker=self.label_marker[label], markevery=200, linewidth=1)     
                 ax.plot(line, self.label_style[label], label=label,
-                        linewidth=2)        
+                        linewidth=2, alpha=self.label_alpha[label])        
         
         
         
@@ -130,3 +130,51 @@ class MyFigure:
         ax.grid(True)
         fig.savefig(f'{self.filename}.png', bbox_inches='tight', transparent=False)
         plt.close()
+
+
+class MyFigureThree:
+    '''Three MyFigure s'''
+    
+    def __init__(self):
+        '''yscale: "log", "symlog", "linear" '''
+        
+        self.obj_err_figure = MyFigure(filename='obj_err', 
+                            xlabel=r'$\mathrm{iteration}$ $k$', 
+                            ylabel='objective error',
+                            yscale='log')
+        self.cons_vio_figure = MyFigure(filename='cons_vio', 
+                                    xlabel=r'$\mathrm{iteration}$ $k$', 
+                                    ylabel='constraint violation',
+                                    yscale='log')
+        self.x_dis_figure = MyFigure(filename='x_distance', 
+                            xlabel=r'$\mathrm{iteration}$ $k$', 
+                            ylabel='x distance',
+                            yscale='log')
+        
+        
+
+        
+        
+
+    def add_lines(self, graph_name:str, log_prefix:str):
+        filename_oe = f'log/{graph_name}/{log_prefix}_oe.txt'
+        filename_cv = f'log/{graph_name}/{log_prefix}_cv.txt'
+        filename_xd = f'log/{graph_name}/{log_prefix}_xd.txt'
+        
+        self.obj_err_figure.add_line_file(log_prefix, filename_oe)
+        self.cons_vio_figure.add_line_file(log_prefix, filename_cv)
+        self.x_dis_figure.add_line_file(log_prefix, filename_xd)
+    
+    def clear(self):
+        self.obj_err_figure.clear()
+        self.cons_vio_figure.clear()
+        self.x_dis_figure.clear()
+        
+    def paint(self, MAX_ITER:int):
+        self.obj_err_figure.paint(MAX_ITER=MAX_ITER)
+        self.cons_vio_figure.paint(MAX_ITER=MAX_ITER, nonnegy=True)
+        self.x_dis_figure.paint(MAX_ITER=MAX_ITER, nonnegy=True)
+            
+            
+        
+        
