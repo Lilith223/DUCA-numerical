@@ -193,10 +193,12 @@ class UDC:
             np.savetxt(f'{self.log_dir}/{self.file_prefix}_oe.txt', self.obj_err_log, delimiter=',')
             np.savetxt(f'{self.log_dir}/{self.file_prefix}_cv.txt', self.cons_vio_log, delimiter=',')
             np.savetxt(f'{self.log_dir}/{self.file_prefix}_xd.txt', self.x_dis_log, delimiter=',')
+            np.savetxt(f'{self.log_dir}/{self.file_prefix}_oe_cv.txt', self.obj_err_log + self.cons_vio_log, delimiter=',')
             # running average
             np.savetxt(f'{self.log_dir}/{self.file_prefix}_oe_avg.txt', self.obj_err_avg_log, delimiter=',')
             np.savetxt(f'{self.log_dir}/{self.file_prefix}_cv_avg.txt', self.cons_vio_avg_log, delimiter=',')
             np.savetxt(f'{self.log_dir}/{self.file_prefix}_xd_avg.txt', self.x_dis_avg_log, delimiter=',')
+            np.savetxt(f'{self.log_dir}/{self.file_prefix}_oe_cv_avg.txt', self.obj_err_avg_log + self.cons_vio_avg_log, delimiter=',')
             
             logging.info(f"time {time()-self.init_time:.2f}, saved\n")
 
@@ -274,9 +276,9 @@ class UDC:
             print(f'param_AyHzb.value {self.param_AyHzb.value}')
             print()
         
-        # self.prob.solve(solver='MOSEK')
+        self.prob.solve(solver='MOSEK')
         # self.prob.solve(solver='CPLEX', cplex_params={'parameters.simplex.tolerances.optimality':1e-7})
-        self.prob.solve(solver='ECOS', reltol=1e-10)
+        # self.prob.solve(solver='ECOS', reltol=1e-8)
         # self.prob.solve(solver='CVXOPT', reltol=1e-6)
         
         return self.var_x.value
@@ -411,8 +413,25 @@ class UDC:
         L_mh = I - get_metropolis_weight(adj_mat)
         L_lm = I - get_lazy_metropolis_weight(adj_mat)
         L_const = np.diag(degrees) - adj_mat
+        
+        
+        if param_setting == 'New1':
+            # A = \rho/2 * (2I - L_mh)
+            # H = \tilde{H} = 1/2 * L_mh
+            # D = \rho * Lam_mh
             
-        if param_setting == 'PEXTRA':
+            self.rho_only_in_mat = False
+            self.name += '_New1'    
+            Lam_mh = np.diag(np.diag(L_mh))
+            A = rho * (Lam_mh - 0.5 * L_mh)
+            D = rho * Lam_mh
+            H1 = 0.5 * L_mh
+            H2 = 0.5 * L_mh
+            
+            A_half = np.real(scipy.linalg.sqrtm(A))
+            H2_half = np.real(scipy.linalg.sqrtm(H2))
+        
+        elif param_setting == 'PEXTRA':
             # A = \rho/2 * (2I - L_mh)
             # H = \tilde{H} = 1/2 * L_mh
             # D = \rho * I
@@ -428,92 +447,78 @@ class UDC:
             H2_half = np.real(scipy.linalg.sqrtm(H2))
         
         elif param_setting == 'PGC':
-            # A = 1/2 * (\Lambada_1 + W_1)
-            # H = \tilde{H} = 1/2 * L_1
-            # D = \Lambda_1
+            # A = \rho (\Lambda_const - 1/2 * L_const)
+            # H = \tilde{H} = 1/2 * L_const
+            # D = \rho\Lambda_const
             
-            self.rho_only_in_mat = True
+            self.rho_only_in_mat = False
             self.name += '_PGC'
 
-            W = np.zeros((N, N))
-            for i in range(N):
-                for j in  range(N):
-                    if i!=j and G[i,j]:
-                        W[i,j] = 2 * rho
-            Lam = np.diag(np.sum(W, axis=1))
-            L = Lam - W
-            A = 0.5 * (Lam + W)
-            H1 = 0.5 * L
-            H2 = 0.5 * L
-            D = Lam
+            Lam_const = np.diag(degrees)
+            A = rho * (Lam_const - 0.5 * L_const)
+            H1 = 0.5 * L_const
+            H2 = 0.5 * L_const
+            D = rho * Lam_const
             
             A_half = np.real(scipy.linalg.sqrtm(A))
             H2_half = np.real(scipy.linalg.sqrtm(H2))
             
         elif param_setting == 'DPGA':
-            # A = \diag(\gamma|N_i|) - L_2
-            # H = \tilde{H} = L_2
-            # D = \diag(\gamma|N_i|)
+            # A = \diag(\gamma|N_i|) - L_1
+            # H = \tilde{H} = \gamma * L_const
+            # D = \gamma \diag(|N_i|)
             
             self.rho_only_in_mat = True
             self.name += '_DPGA'
-            gam = sqrt(N*rho/(edge_num*np.min(degrees)))
+            gamma = sqrt(N*rho/(edge_num*np.min(degrees)))
             # print(f'deg {degrees}, edge_nume {edge_num}, gam {gam}')
-
-            W = np.zeros((N, N))
-            for i in range(N):
-                for j in  range(N):
-                    if i!=j and G[i,j]:
-                        W[i,j] = gam/2
             
-            Lam = np.diag(np.sum(W, axis=1))
-            L = Lam - W
-            H1 = L
-            H2 = L
-            D = np.diag(gam * degrees)
-            A = D - L
+            H1 = 0.5 * gamma * L_const
+            H2 = 0.5 * gamma * L_const
+            D = gamma * np.diag(degrees)
+            A = D - H1
             
             A_half = np.real(scipy.linalg.sqrtm(A))
             H2_half = np.real(scipy.linalg.sqrtm(H2))
             
         elif param_setting == 'DistADMM':
-            # H = \tilde{H} = Mg^2
-            # D = rho * diag(sum_j Mg_{ij}^2 * (deg_j+1))
+            # H = \tilde{H} = L_mh^2
+            # D = rho * diag(sum_j L_mh_{ij}^2 * (deg_j+1))
             # A = D - rho*H
             self.rho_only_in_mat = False
             self.name += '_DistADMM'
             
-            H1 = Mg @ Mg
-            H2 = Mg @ Mg
-            H2_half = Mg
+            H1 = L_mh @ L_mh
+            H2 = L_mh @ L_mh
+            H2_half = L_mh
             diag = np.zeros(N)
             for i in range(N):
-                diag[i] = np.inner(Mg[i], (degrees+1)*Mg[i])
+                diag[i] = np.inner(L_mh[i], (degrees+1)*L_mh[i])
             D = rho * np.diag(diag)
             A = D - rho*H1
             A_half = np.real(scipy.linalg.sqrtm(A))
         
         elif param_setting == 'ALT':
-            # A = \rho (I-Mg)^2
-            # H = Mg(2I-Mg)
-            # \tilde{H} = Mg^2
+            # A = \rho (I - L_lm)^2
+            # H = L_lm (2I - L_lm)
+            # \tilde{H} = L_lm^2
             # D = \rho I
             
             self.rho_only_in_mat = False
             self.name = 'ALT'
-            A_half = sqrt(rho) * (I-Mg)
+            A_half = sqrt(rho) * (I - L_lm)
             A = A_half @ A_half
             D = rho * I
-            H1 = Mg @ (2*I - Mg)
-            H2_half = Mg
-            H2 = Mg @ Mg
+            H1 = L_lm @ (2*I - L_lm)
+            H2_half = L_lm
+            H2 = L_lm @ L_lm
         
         elif param_setting == 'DPMM':
             self.rho_only_in_mat = False
             self.name = 'DPMM'
             
             A, A_half, H1, H2, H2_half, D \
-                = self.set_weight_param('PEXTRA', Mg, rho)
+                = self.set_weight_param('PEXTRA', adj_mat, rho)
             self.name = self.name[:-7] # delete '_PEXTRA'
         
         

@@ -150,7 +150,10 @@ class MyFigureThree:
                             xlabel=r'$\mathrm{iteration}$ $k$', 
                             ylabel='x distance',
                             yscale='log')
-        
+        self.oe_cv_figure = MyFigure(filename='oe_cv', 
+                            xlabel=r'$\mathrm{iteration}$ $k$', 
+                            ylabel='obj. err. + cons. vio.',
+                            yscale='log')
         
 
         
@@ -160,20 +163,32 @@ class MyFigureThree:
         filename_oe = f'log/{graph_name}/{log_prefix}_oe.txt'
         filename_cv = f'log/{graph_name}/{log_prefix}_cv.txt'
         filename_xd = f'log/{graph_name}/{log_prefix}_xd.txt'
+        filename_oe_cv = f'log/{graph_name}/{log_prefix}_oe_cv.txt'
+        filename_oe_avg = f'log/{graph_name}/{log_prefix}_oe_avg.txt'
+        filename_cv_avg = f'log/{graph_name}/{log_prefix}_cv_avg.txt'
+        filename_xd_avg = f'log/{graph_name}/{log_prefix}_xd_avg.txt'
+        filename_oe_cv_avg = f'log/{graph_name}/{log_prefix}_oe_cv_avg.txt'
         
+        # self.obj_err_figure.add_line_file(log_prefix, filename_oe)
+        # self.cons_vio_figure.add_line_file(log_prefix, filename_cv)
+        # self.x_dis_figure.add_line_file(log_prefix, filename_xd)
+
         self.obj_err_figure.add_line_file(log_prefix, filename_oe)
         self.cons_vio_figure.add_line_file(log_prefix, filename_cv)
         self.x_dis_figure.add_line_file(log_prefix, filename_xd)
+        self.oe_cv_figure.add_line_file(log_prefix, filename_oe_cv)
     
     def clear(self):
         self.obj_err_figure.clear()
         self.cons_vio_figure.clear()
         self.x_dis_figure.clear()
+        self.oe_cv_figure.clear()
         
     def paint(self, MAX_ITER:int):
         self.obj_err_figure.paint(MAX_ITER=MAX_ITER)
         self.cons_vio_figure.paint(MAX_ITER=MAX_ITER, nonnegy=True)
         self.x_dis_figure.paint(MAX_ITER=MAX_ITER, nonnegy=True)
+        self.oe_cv_figure.paint(MAX_ITER=MAX_ITER)
             
             
         
