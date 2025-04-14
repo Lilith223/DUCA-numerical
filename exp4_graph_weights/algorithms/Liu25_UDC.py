@@ -276,9 +276,9 @@ class UDC:
             print(f'param_AyHzb.value {self.param_AyHzb.value}')
             print()
         
-        self.prob.solve(solver='MOSEK')
+        # self.prob.solve(solver='MOSEK')
         # self.prob.solve(solver='CPLEX', cplex_params={'parameters.simplex.tolerances.optimality':1e-7})
-        # self.prob.solve(solver='ECOS', reltol=1e-8)
+        self.prob.solve(solver='ECOS', reltol=1e-8)
         # self.prob.solve(solver='CVXOPT', reltol=1e-6)
         
         return self.var_x.value
